@@ -312,38 +312,69 @@ export default function AyanmoApp() {
           </div>
         );
 
-      case 12: // Vitrine
+      case 12: { // Vitrine
         const recommendations = [
-          { id: 1, image: "https://images.unsplash.com/photo-1539008835657-9e8e9680c956?auto=format&fit=crop&q=80&w=600", desc: "Conjunto Estruturado" },
-          { id: 2, image: "https://images.unsplash.com/photo-1490481651871-ab68de25d43d?auto=format&fit=crop&q=80&w=600", desc: "Alfaiataria Leve" },
-          { id: 3, image: "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&q=80&w=600", desc: "Vestido Fluído" }
+          { 
+            id: 1, 
+            image: "https://images.unsplash.com/photo-1539008835657-9e8e9680c956?auto=format&fit=crop&q=80&w=600", 
+            desc: "Blazer Estruturado Marrom", 
+            price: "R\$ 359,90",
+            store: "Zara",
+            link: "https://www.zara.com/br/" 
+          },
+          { 
+            id: 2, 
+            image: "https://images.unsplash.com/photo-1490481651871-ab68de25d43d?auto=format&fit=crop&q=80&w=600", 
+            desc: "Conjunto Alfaiataria Leve", 
+            price: "R\$ 289,50",
+            store: "Amaro",
+            link: "https://amaro.com/br/pt/" 
+          },
+          { 
+            id: 3, 
+            image: "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&q=80&w=600", 
+            desc: "Vestido Midi Fluído", 
+            price: "R\$ 199,90",
+            store: "Renner",
+            link: "https://www.lojasrenner.com.br/" 
+          }
         ];
+
         return (
           <div className="flex flex-col h-full bg-[var(--color-ayanmo-light)] overflow-y-auto pb-12">
             <div className="p-6 md:p-8 bg-[#1A2733] text-[var(--color-ayanmo-light)]">
               <h2 className="text-2xl font-light mb-2" style={{ fontFamily: "'Poppins', sans-serif" }}>
                 {profile.nome ? profile.nome.split(' ')[0] : 'Wendy'}, aqui estão suas opções.
               </h2>
-              <p className="text-[#5C879C] text-sm">Alta moda pensada para o seu biotipo.</p>
+              <p className="text-[#5C879C] text-sm">Peças selecionadas com base no seu perfil.</p>
             </div>
             
             <div className="p-6 grid gap-8 max-w-2xl mx-auto w-full">
               {recommendations.map(item => (
-                <div key={item.id} className="group relative">
+                <div key={item.id} className="group relative bg-white rounded-lg shadow-sm overflow-hidden border border-gray-100">
                   <div className="aspect-[3/4] overflow-hidden bg-gray-200">
                     <img src={item.image} alt={item.desc} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
                   </div>
-                  <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent text-[var(--color-ayanmo-light)]">
-                    <h3 className="text-lg font-medium tracking-wide">{item.desc}</h3>
+                  
+                  <div className="p-4 flex flex-col gap-1 bg-white">
+                    <span className="text-xs text-[#5C879C] uppercase tracking-wider font-semibold">{item.store}</span>
+                    <h3 className="text-[#1A2733] font-medium leading-tight">{item.desc}</h3>
+                    <p className="text-[#4A3026] font-bold mt-1">{item.price}</p>
                   </div>
-                  <button className="absolute top-4 right-4 w-10 h-10 bg-[var(--color-ayanmo-light)] text-[#4A3026] rounded-full flex items-center justify-center hover:bg-[#4A3026] hover:text-[var(--color-ayanmo-light)] shadow-lg transition-colors">
-                    <ShoppingBag size={18} />
+
+                  <button 
+                    onClick={() => window.open(item.link, '_blank')}
+                    className="absolute top-4 right-4 w-12 h-12 bg-[#F7F7F5] text-[#4A3026] rounded-full flex items-center justify-center hover:bg-[#4A3026] hover:text-[#F7F7F5] shadow-lg transition-all duration-300 transform hover:scale-110"
+                    title="Comprar no site da loja"
+                  >
+                    <ShoppingBag size={22} />
                   </button>
                 </div>
               ))}
             </div>
           </div>
         );
+      }
 
       default:
         return null;
@@ -351,41 +382,16 @@ export default function AyanmoApp() {
   };
 
   return (
-    <div className="h-screen w-full bg-[var(--color-ayanmo-light)] text-[#1A2733] font-['Inter',sans-serif] overflow-hidden flex flex-col relative"
-         style={{ fontFamily: "'Inter', sans-serif" }}>
-      
-      <style dangerouslySetInnerHTML={{__html: `
-        @keyframes scan {
-          0% { transform: translateY(0); }
-          100% { transform: translateY(310px); }
-        }
-      `}} />
-
-      {step > 0 && step !== 10 && (
-        <header className="px-6 py-4 flex items-center justify-between border-b border-[#1A2733]/5 z-10 bg-[var(--color-ayanmo-light)]">
-          {step > 1 && step < 12 ? (
-            <button onClick={prevStep} className="p-2 -ml-2 text-[var(--color-ayanmo-brown)] hover:opacity-70 transition-opacity">
-              <ChevronLeft size={24} />
-            </button>
-          ) : <div className="w-10"></div>}
-          
-          <h1 className="text-xl font-bold text-[var(--color-ayanmo-brown)] tracking-widest uppercase" style={{ fontFamily: "'Poppins', sans-serif" }}>Ayanmo</h1>
-          
-          <div className="w-10 flex justify-end">
-            {step === 12 && <ShoppingBag className="text-[var(--color-ayanmo-brown)]" size={20} />}
-          </div>
-        </header>
+    <div className="h-screen w-full bg-[var(--color-ayanmo-light)] relative">
+      {step > 0 && step < 10 && (
+        <button 
+          onClick={prevStep} 
+          className="absolute top-6 left-6 z-50 text-[#1A2733] hover:text-[#4A3026] transition-colors"
+        >
+          <ChevronLeft size={28} />
+        </button>
       )}
-
-      {step > 2 && step < 10 && (
-         <div className="w-full h-1 bg-[#1A2733]/10">
-           <div className="h-full bg-[#5C879C] transition-all duration-500" style={{ width: `${((step - 2) / 7) * 100}%` }}></div>
-         </div>
-      )}
-
-      <main className={`flex-1 overflow-hidden transition-opacity duration-300 ${animatingStep ? 'opacity-0' : 'opacity-100'}`}>
-        {renderStep()}
-      </main>
+      {renderStep()}
     </div>
   );
 }
