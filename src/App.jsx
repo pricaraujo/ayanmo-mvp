@@ -5,7 +5,6 @@ import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 // --- Firebase Setup ---
-// Usando variáveis de ambiente fornecidas pela plataforma ou valores padrão para rodar
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
 let app, auth, db;
 try {
@@ -53,7 +52,7 @@ export default function AyanmoApp() {
     return () => unsubscribe();
   }, []);
 
-  // Injeção de Fontes do Google (Poppins e Inter)
+  // Injeção de Fontes do Google
   useEffect(() => {
     const link = document.createElement('link');
     link.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Poppins:wght@400;500;600;700&display=swap';
@@ -78,6 +77,14 @@ export default function AyanmoApp() {
     }, 300);
   };
 
+  // Auto-avançar na Visão Computacional (Scanner Mock)
+  useEffect(() => {
+    if (step === 10) {
+      const timer = setTimeout(() => { nextStep(); }, 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [step]);
+
   // Salvar no Firebase após cadastro
   const handleRegisterSubmit = async (e) => {
     e.preventDefault();
@@ -99,6 +106,7 @@ export default function AyanmoApp() {
     }
   };
 
+  // Tratamento de Seleção de Opções
   const handleOptionSelect = (key, value, isMulti = false, max = 1) => {
     if (isMulti) {
       let current = [...answers[key]];
@@ -110,19 +118,18 @@ export default function AyanmoApp() {
       setAnswers({ ...answers, [key]: current });
     } else {
       setAnswers({ ...answers, [key]: value });
-      setTimeout(nextStep, 400); // Auto-avançar para opções únicas
+      // Avança automaticamente para opções únicas com um pequeno delay visual
+      setTimeout(nextStep, 400); 
     }
   };
 
   // --- Renderização de Telas ---
-
   const renderStep = () => {
     switch (step) {
       case 0: // Splash
         return (
           <div className="flex flex-col items-center justify-center h-full text-center p-8 cursor-pointer" onClick={nextStep}>
             <div className="mb-8 border-4 border-[#4A3026] p-6 rotate-45">
-               {/* Símbolo abstrato (Bigorna de Ogum/Odus simulado) */}
                <div className="-rotate-45">
                  <h1 className="text-4xl md:text-6xl font-bold text-[#4A3026] tracking-widest uppercase" style={{ fontFamily: "'Poppins', sans-serif" }}>Ayanmo</h1>
                </div>
@@ -181,12 +188,46 @@ export default function AyanmoApp() {
           </div>
         );
 
-      case 3: // O que procura hoje?
-      case 4: // O que mais importa?
-      case 6: // Guarda-roupa
-      case 7: // Tecido
-      case 8: // Cores
-      case 9: // Estampas
+      case 5: // Percepção (Até 2 opções)
+        return (
+          <div className="flex flex-col h-full animate-fade-in max-w-md mx-auto w-full">
+            <h2 className="text-2xl md:text-3xl text-[var(--color-ayanmo-brown)] mb-2 tracking-tight" style={{ fontFamily: "'Poppins', sans-serif" }}>Como você quer ser percebida com este look?</h2>
+            <p className="text-[var(--color-ayanmo-blue)] mb-8">Escolha até 2 opções.</p>
+            <div className="flex flex-col gap-3 mb-8">
+              {['Profissional', 'Confiante', 'Acessível', 'Criativa', 'Elegante', 'Marcante'].map((opcao) => (
+                <button
+                  key={opcao}
+                  onClick={() => {
+                    const selecionadas = answers.percepcao || [];
+                    const isDeselecting = selecionadas.includes(opcao);
+                    
+                    handleOptionSelect('percepcao', opcao, true, 2);
+                    
+                    // Avança automaticamente quando for a segunda escolha válida
+                    if (!isDeselecting && selecionadas.length === 1) {
+                      setTimeout(() => nextStep(), 400);
+                    }
+                  }}
+                  className={`p-4 border text-left flex justify-between items-center transition-all duration-300 ${
+                    answers.percepcao?.includes(opcao)
+                      ? 'bg-[var(--color-ayanmo-brown)] border-[var(--color-ayanmo-brown)] text-[var(--color-ayanmo-light)]'
+                      : 'bg-transparent border-gray-300 text-gray-700 hover:border-[var(--color-ayanmo-brown)]'
+                  }`}
+                >
+                  {opcao}
+                  {answers.percepcao?.includes(opcao) && <Check size={20} />}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+
+      case 3:
+      case 4:
+      case 6:
+      case 7:
+      case 8:
+      case 9: // Agrupando todas as perguntas de múltipla escolha simples
         const questions = {
           3: { key: 'objetivo', title: 'O que você procura hoje?', options: ['Look Casual', 'Look Esportivo', 'Look para Trabalho', 'Look de Festa', 'Moda Praia', 'Look para Viagem', 'Moda Íntima'] },
           4: { key: 'prioridade', title: 'O que mais importa pra você numa roupa?', options: ['Conforto', 'Elegância', 'Delicadeza', 'Sensualidade', 'Impacto', 'Discrição', 'Criatividade'] },
@@ -197,49 +238,28 @@ export default function AyanmoApp() {
         };
         const currentQ = questions[step];
         return (
-          <div className="flex flex-col h-full p-6 md:p-12 max-w-md mx-auto w-full">
-            <h2 className="text-2xl md:text-3xl text-[#4A3026] mb-8 leading-tight" style={{ fontFamily: "'Poppins', sans-serif" }}>{currentQ.title}</h2>
+          <div className="flex flex-col h-full p-6 md:p-12 max-w-md mx-auto w-full animate-fade-in">
+            <h2 className="text-2xl md:text-3xl text-[var(--color-ayanmo-brown)] mb-8 leading-tight tracking-tight" style={{ fontFamily: "'Poppins', sans-serif" }}>{currentQ.title}</h2>
             <div className="flex-1 overflow-y-auto space-y-3 pb-8">
               {currentQ.options.map((opt) => (
-                <button key={opt} onClick={() => handleOptionSelect(currentQ.key, opt)}
-                  className={`w-full text-left p-4 border transition-all ${answers[currentQ.key] === opt ? 'border-[#4A3026] bg-[#4A3026] text-[#F7F7F5]' : 'border-[#1A2733]/20 hover:border-[#1A2733] text-[#1A2733]'}`}>
+                <button 
+                  key={opt} 
+                  onClick={() => handleOptionSelect(currentQ.key, opt)}
+                  className={`w-full text-left p-4 border transition-all duration-300 flex justify-between items-center ${
+                    answers[currentQ.key] === opt 
+                    ? 'border-[var(--color-ayanmo-brown)] bg-[var(--color-ayanmo-brown)] text-[var(--color-ayanmo-light)]' 
+                    : 'border-gray-300 text-gray-700 hover:border-[var(--color-ayanmo-brown)]'
+                  }`}
+                >
                   {opt}
+                  {answers[currentQ.key] === opt && <Check size={20} />}
                 </button>
               ))}
             </div>
           </div>
         );
 
-      case 5: // Percepção (Até 2 opções)
-        return (
-          <div className="flex flex-col h-full p-6 md:p-12 max-w-md mx-auto w-full">
-            <h2 className="text-2xl md:text-3xl text-[#4A3026] mb-4 leading-tight" style={{ fontFamily: "'Poppins', sans-serif" }}>Como você quer ser percebida com este look?</h2>
-            <p className="text-sm text-[#5C879C] mb-8 font-medium">Escolha até 2 opções.</p>
-            <div className="flex-1 space-y-3">
-              {['Profissional', 'Confiante', 'Acessível', 'Criativa', 'Elegante', 'Marcante'].map((opt) => {
-                const isSelected = answers.percepcao.includes(opt);
-                return (
-                  <button key={opt} onClick={() => handleOptionSelect('percepcao', opt, true, 2)}
-                    className={`w-full text-left p-4 flex justify-between items-center border transition-all ${isSelected ? 'border-[#4A3026] bg-[#4A3026] text-[#F7F7F5]' : 'border-[#1A2733]/20 text-[#1A2733]'}`}>
-                    <span>{opt}</span>
-                    {isSelected && <Check size={18} />}
-                  </button>
-                )
-              })}
-            </div>
-            <button onClick={nextStep} disabled={answers.percepcao.length === 0} className="mt-6 w-full bg-[#1A2733] disabled:opacity-50 text-[#F7F7F5] py-4 uppercase tracking-widest text-sm font-medium">
-              Continuar
-            </button>
-          </div>
-        );
-
       case 10: // Visão Computacional (Scanner Mock)
-        // eslint-disable-next-line react-hooks/rules-of-hooks
-        useEffect(() => {
-          const timer = setTimeout(() => { nextStep(); }, 4000);
-          return () => clearTimeout(timer);
-        }, []);
-        
         return (
           <div className="flex flex-col items-center justify-center h-full p-6 bg-[#1A2733] text-[#F7F7F5] relative overflow-hidden">
             <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at center, #5C879C 0%, transparent 70%)' }}></div>
@@ -248,7 +268,6 @@ export default function AyanmoApp() {
             </h2>
             
             <div className="relative w-64 h-80 border border-[#5C879C]/50 mb-8 flex items-center justify-center z-10">
-              {/* Moldura de scanner */}
               <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-[#5C879C]"></div>
               <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-[#5C879C]"></div>
               <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-[#5C879C]"></div>
@@ -256,7 +275,6 @@ export default function AyanmoApp() {
               
               <Camera size={48} className="text-[#5C879C]/30" />
               
-              {/* Linha animada simulando scanner */}
               <div className="absolute top-0 left-0 w-full h-1 bg-[#5C879C] shadow-[0_0_15px_#5C879C] animate-[scan_2s_ease-in-out_infinite_alternate]"></div>
             </div>
             
@@ -301,8 +319,8 @@ export default function AyanmoApp() {
           { id: 3, image: "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&q=80&w=600", desc: "Vestido Fluído" }
         ];
         return (
-          <div className="flex flex-col h-full bg-[#F7F7F5] overflow-y-auto pb-12">
-            <div className="p-6 md:p-8 bg-[#1A2733] text-[#F7F7F5]">
+          <div className="flex flex-col h-full bg-[var(--color-ayanmo-light)] overflow-y-auto pb-12">
+            <div className="p-6 md:p-8 bg-[#1A2733] text-[var(--color-ayanmo-light)]">
               <h2 className="text-2xl font-light mb-2" style={{ fontFamily: "'Poppins', sans-serif" }}>
                 {profile.nome ? profile.nome.split(' ')[0] : 'Wendy'}, aqui estão suas opções.
               </h2>
@@ -315,10 +333,10 @@ export default function AyanmoApp() {
                   <div className="aspect-[3/4] overflow-hidden bg-gray-200">
                     <img src={item.image} alt={item.desc} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
                   </div>
-                  <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent text-[#F7F7F5]">
+                  <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent text-[var(--color-ayanmo-light)]">
                     <h3 className="text-lg font-medium tracking-wide">{item.desc}</h3>
                   </div>
-                  <button className="absolute top-4 right-4 w-10 h-10 bg-[#F7F7F5] text-[#4A3026] rounded-full flex items-center justify-center hover:bg-[#4A3026] hover:text-[#F7F7F5] shadow-lg transition-colors">
+                  <button className="absolute top-4 right-4 w-10 h-10 bg-[var(--color-ayanmo-light)] text-[#4A3026] rounded-full flex items-center justify-center hover:bg-[#4A3026] hover:text-[var(--color-ayanmo-light)] shadow-lg transition-colors">
                     <ShoppingBag size={18} />
                   </button>
                 </div>
@@ -333,10 +351,9 @@ export default function AyanmoApp() {
   };
 
   return (
-    <div className="h-screen w-full bg-[#F7F7F5] text-[#1A2733] font-['Inter',sans-serif] overflow-hidden flex flex-col relative"
+    <div className="h-screen w-full bg-[var(--color-ayanmo-light)] text-[#1A2733] font-['Inter',sans-serif] overflow-hidden flex flex-col relative"
          style={{ fontFamily: "'Inter', sans-serif" }}>
       
-      {/* Estilos Globais injetados para animações específicas */}
       <style dangerouslySetInnerHTML={{__html: `
         @keyframes scan {
           0% { transform: translateY(0); }
@@ -344,31 +361,28 @@ export default function AyanmoApp() {
         }
       `}} />
 
-      {/* Header/Nav (Oculto em telas específicas como Splash e Visão Computacional) */}
       {step > 0 && step !== 10 && (
-        <header className="px-6 py-4 flex items-center justify-between border-b border-[#1A2733]/5 z-10 bg-[#F7F7F5]">
+        <header className="px-6 py-4 flex items-center justify-between border-b border-[#1A2733]/5 z-10 bg-[var(--color-ayanmo-light)]">
           {step > 1 && step < 12 ? (
-            <button onClick={prevStep} className="p-2 -ml-2 text-[#4A3026] hover:opacity-70 transition-opacity">
+            <button onClick={prevStep} className="p-2 -ml-2 text-[var(--color-ayanmo-brown)] hover:opacity-70 transition-opacity">
               <ChevronLeft size={24} />
             </button>
           ) : <div className="w-10"></div>}
           
-          <h1 className="text-xl font-bold text-[#4A3026] tracking-widest uppercase" style={{ fontFamily: "'Poppins', sans-serif" }}>Ayanmo</h1>
+          <h1 className="text-xl font-bold text-[var(--color-ayanmo-brown)] tracking-widest uppercase" style={{ fontFamily: "'Poppins', sans-serif" }}>Ayanmo</h1>
           
           <div className="w-10 flex justify-end">
-            {step === 12 && <ShoppingBag className="text-[#4A3026]" size={20} />}
+            {step === 12 && <ShoppingBag className="text-[var(--color-ayanmo-brown)]" size={20} />}
           </div>
         </header>
       )}
 
-      {/* Barra de Progresso */}
       {step > 2 && step < 10 && (
          <div className="w-full h-1 bg-[#1A2733]/10">
            <div className="h-full bg-[#5C879C] transition-all duration-500" style={{ width: `${((step - 2) / 7) * 100}%` }}></div>
          </div>
       )}
 
-      {/* Área Principal com transição de opacidade simulada */}
       <main className={`flex-1 overflow-hidden transition-opacity duration-300 ${animatingStep ? 'opacity-0' : 'opacity-100'}`}>
         {renderStep()}
       </main>

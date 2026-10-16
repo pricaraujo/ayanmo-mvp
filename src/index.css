@@ -1,0 +1,12 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ayanmo-brown: #4a2f26;
+  --color-ayanmo-blue: #4b88a8;
+  --color-ayanmo-light: #f5f2eb;
+  --color-ayanmo-blue-support: #7ab0cc;
+}
+
+body {
+  background-color: var(--color-ayanmo-light);
+}
