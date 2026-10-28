@@ -427,7 +427,7 @@ export default function AyanmoApp() {
         return (
           <div className="flex flex-col h-full bg-[#F7F7F5] overflow-y-auto pb-12 p-6">
             <div className="mb-6 p-4 bg-[#1A2733] text-[#F7F7F5] rounded-lg">
-              <h2 className="text-xl font-bold mb-1">Sugestões para Biotipo {calculatedResult?.biotype}</h2>
+              <h2 className="text-xl font-bold mb-1">Sugestões da Ayanmo! {calculatedResult?.biotype}</h2>
               <p className="text-xs text-[#5C879C]">Peças selecionadas com foco em conforto, caimento e valorização corporal.</p>
             </div>
             <div className="space-y-6 max-w-md mx-auto w-full">
