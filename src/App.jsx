@@ -20,14 +20,14 @@ try {
 // --- Hook de Audiodescrição / Leitor de Tela Acessível ---
 function useAudioDescription(enabled = true) {
   const speak = useCallback((text) => {
-    if (!('speechSynthesis' in window)) return;
-    window.speechSynthesis.cancel(); // Interrompe fala anterior
+    if (!enabled || !('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'pt-BR';
-    utterance.rate = 0.95; // Leitura um pouco mais pausada e clara
+    utterance.rate = 0.95;
     utterance.pitch = 1.0;
     window.speechSynthesis.speak(utterance);
-  }, []);
+  }, [enabled]);
 
   const stop = useCallback(() => {
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
@@ -56,8 +56,8 @@ function calculateStyleProfile(answers, biotype) {
   };
 }
 
-// Base Dinâmica de Produtos Recomendados por Biotipo e Estilo
-function getDynamicRecommendations(biotype, style) {
+// Base Dinâmica de Produtos Recomendados por Biotipo
+function getDynamicRecommendations(biotype) {
   const catalog = {
     Oval: [
       {
@@ -87,36 +87,23 @@ function getDynamicRecommendations(biotype, style) {
         link: "https://www.lojasrenner.com.br/",
         image: "https://images.unsplash.com/photo-1490481651871-ab68de25d43d?auto=format&fit=crop&q=80&w=600"
       }
-    ],
-    Ampulheta: [
-      {
-        id: 4,
-        desc: "Vestido Acinturado em Alfaiataria Leve",
-        details: "Acompanha as curvas naturais sem comprimir, mantendo equilíbrio estético.",
-        price: "R$ 299,00",
-        store: "AMARO",
-        link: "https://amaro.com/br/pt/",
-        image: "https://images.unsplash.com/photo-1539008835657-9e8e9680c956?auto=format&fit=crop&q=80&w=600"
-      }
     ]
   };
-
   return catalog[biotype] || catalog['Oval'];
 }
 
 // --- Componente Principal ---
 export default function AyanmoApp() {
   const [user, setUser] = useState(null);
-  const [step, setStep] = useState(0); // 0 = Splash, 1 = Pergunta Acessibilidade Primeiro
-  const [accessibility, setAccessibility] = useState(true); // Padrão ativado para cegos
-  const [cameraActive, setCameraActive] = useState(false);
+  const [step, setStep] = useState(0); 
+  const [accessibility, setAccessibility] = useState(true); 
   const [biotypeDetected, setBiotypeDetected] = useState('Oval');
 
   const videoRef = useRef(null);
   const { speak, stop } = useAudioDescription(accessibility);
 
-  // Formulário
-  const [profile, setProfile] = useState({ nome: '', genero: '', email: '', telefone: '', aniversario: '' });
+  // Formulário completo
+  const [profile, setProfile] = useState({ nome: '', email: '', telefone: '', aniversario: '', genero: '' });
   const [answers, setAnswers] = useState({
     objetivo: '',
     prioridade: '',
@@ -136,27 +123,24 @@ export default function AyanmoApp() {
   }, []);
 
   // Leitura Automática das Telas
-  const speakCurrentScreen = useCallback((stepIndex, currentAnswers = answers, currentProfile = profile) => {
+  const speakCurrentScreen = useCallback((stepIndex) => {
     const screenTexts = {
       0: "Bem-vinda ao Ayanmo. Sua assistente de estilo acessível. Toque em qualquer lugar da tela para começar.",
       1: "Primeira pergunta de acessibilidade: Você deseja ativar a audiodescrição em voz alta durante toda a navegação? Selecione Sim ou Não.",
-      2: "Cadastro do perfil. Por favor, informe seu nome e dados de contato nos campos abaixo.",
-      3: "Pergunta sobre seu objetivo: O que você procura hoje? Opções: Look Casual, Look Esportivo, Look para Trabalho, Look de Festa, Moda Praia, Look para Viagem ou Moda Íntima.",
-      4: "Pergunta sobre prioridade: O que mais importa para você em uma roupa? Opções: Conforto, Elegância, Delicadeza, Sensualidade, Impacto, Discrição ou Criatividade.",
-      5: "Pergunta de percepção: Como você quer ser percebida com este look? Escolha até duas opções: Profissional, Confiante, Acessível, Criativa, Elegante ou Marcante.",
-      6: "Guarda-roupa: Do que você mais gosta no seu guarda-roupa atual?",
-      7: "Sensorialidade Têxtil: Qual tipo de tecido te atrai mais ao toque?",
-      8: "Cores: Como você prefere misturar as cores no seu visual?",
-      9: "Estampas: Qual tipo de estampa melhor combina com você?",
-      10: "Análise de Biotipo por Câmera. A câmera está aberta. Posicione seu corpo no centro da moldura oval. Mantenha os braços levemente afastados.",
-      11: `Análise finalizada! Identificamos o biotipo Oval e o estilo ${calculatedResult?.aparencia || 'Elegante'}.`,
-      12: `Exibindo vitrine com recomendações personalizadas para o biotipo Oval e facilidade de audiodescrição.`
+      2: "Cadastro do perfil. Por favor, preencha seu nome, e-mail, telefone, data de aniversário e gênero nos campos abaixo.",
+      3: "O que você procura hoje?",
+      4: "O que mais importa para você em uma roupa?",
+      5: "Como você quer ser percebida com este look? Escolha até duas opções.",
+      6: "Do que você mais gosta no seu guarda-roupa atual?",
+      7: "Qual tipo de tecido te atrai mais ao toque?",
+      8: "Como você prefere misturar as cores?",
+      9: "Qual tipo de estampa melhor combina com você?",
+      10: "Análise de Biotipo por Câmera. A câmera está aberta. Posicione seu corpo no centro da moldura oval.",
+      11: "Análise finalizada com sucesso. Veja seus estilos predominantes.",
+      12: "Exibindo vitrine com recomendações personalizadas para o seu biotipo."
     };
-
-    if (screenTexts[stepIndex]) {
-      speak(screenTexts[stepIndex]);
-    }
-  }, [speak, answers, profile, calculatedResult]);
+    if (screenTexts[stepIndex]) speak(screenTexts[stepIndex]);
+  }, [speak]);
 
   useEffect(() => {
     speakCurrentScreen(step);
@@ -169,15 +153,10 @@ export default function AyanmoApp() {
       navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'user' } })
         .then(s => {
           stream = s;
-          if (videoRef.current) {
-            videoRef.current.srcObject = s;
-          }
+          if (videoRef.current) videoRef.current.srcObject = s;
         })
-        .catch(err => {
-          console.warn("Câmera não permitida ou indisponível, simulando modo visual:", err);
-        });
+        .catch(err => console.warn("Câmera indisponível:", err));
 
-      // Simula leitura de biotipo após 5s
       const timer = setTimeout(() => {
         setBiotypeDetected('Oval');
         nextStep();
@@ -228,29 +207,31 @@ export default function AyanmoApp() {
 
   const handleOptionSelect = (key, value, isMulti = false, max = 1) => {
     if (isMulti) {
-      let current = [...answers[key]];
-      if (current.includes(value)) current = current.filter(v => v !== value);
-      else if (current.length < max) current.push(value);
+      let current = [...(answers[key] || [])];
+      if (current.includes(value)) {
+        current = current.filter(v => v !== value);
+      } else if (current.length < max) {
+        current.push(value);
+      }
       setAnswers({ ...answers, [key]: current });
       speak(`Selecionado: ${value}`);
     } else {
       setAnswers({ ...answers, [key]: value });
       speak(`Selecionado: ${value}`);
-      setTimeout(nextStep, 500);
+      setTimeout(nextStep, 400);
     }
   };
 
   // RENDERIZADOR DE TELAS
   const renderContent = () => {
     switch (step) {
-      case 0: // Splash Screen
+      case 0:
         return (
           <div 
             onClick={nextStep} 
             tabIndex={0} 
             role="button" 
-            aria-label="Ayanmo Assistente de Estilo. Toque aqui para iniciar."
-            className="flex flex-col items-center justify-center h-full p-8 text-center cursor-pointer focus:outline-none focus:ring-4 focus:ring-[#4A3026]"
+            className="flex flex-col items-center justify-center h-full p-8 text-center cursor-pointer focus:outline-none"
           >
             <div className="mb-8 border-4 border-[#4A3026] p-6 rotate-45">
               <div className="-rotate-45">
@@ -265,25 +246,23 @@ export default function AyanmoApp() {
           </div>
         );
 
-      case 1: // PERGUNTA DE ACESSIBILIDADE PRIMEIRO QUE TUDO
+      case 1:
         return (
           <div className="flex flex-col items-center justify-center h-full p-6 text-center max-w-md mx-auto">
             <Volume2 size={56} className="text-[#4A3026] mb-6 animate-bounce" />
-            <h2 className="text-2xl text-[#4A3026] mb-8 font-semibold" tabIndex={0}>
+            <h2 className="text-2xl text-[#4A3026] mb-8 font-semibold">
               Você deseja ativar a Audiodescrição e o Leitor de Tela Acessível?
             </h2>
             <div className="flex flex-col gap-4 w-full">
               <button 
-                onClick={() => { setAccessibility(true); speak("Audiodescrição ativada com sucesso."); nextStep(); }}
-                className="py-5 bg-[#4A3026] text-[#F7F7F5] font-bold text-lg rounded shadow-md hover:bg-[#1A2733] focus:ring-4 focus:ring-[#5C879C]"
-                aria-label="Sim, ativar audiodescrição"
+                onClick={() => { setAccessibility(true); speak("Audiodescrição ativada."); nextStep(); }}
+                className="py-5 bg-[#4A3026] text-[#F7F7F5] font-bold text-lg rounded shadow-md hover:bg-[#1A2733]"
               >
                 SIM (Ativar Leitor de Voz)
               </button>
               <button 
                 onClick={() => { setAccessibility(false); stop(); nextStep(); }}
                 className="py-4 border-2 border-[#1A2733] text-[#1A2733] font-medium rounded hover:bg-[#1A2733] hover:text-[#F7F7F5]"
-                aria-label="Não preciso de leitor de voz"
               >
                 NÃO (Navegação Padrão)
               </button>
@@ -291,71 +270,142 @@ export default function AyanmoApp() {
           </div>
         );
 
-      case 2: // Cadastro
+      case 2: // Formulário Completo com todos os campos
         return (
-          <div className="flex flex-col h-full p-6 max-w-md mx-auto justify-center">
-            <h2 className="text-2xl text-[#4A3026] mb-6 font-semibold" tabIndex={0}>
-              Por favor, informe seus dados de identificação.
+          <div className="flex flex-col h-full p-6 max-w-md mx-auto justify-center overflow-y-auto">
+            <h2 className="text-2xl text-[#4A3026] mb-6 font-semibold">
+              Por favor, preencha seus dados cadastrais.
             </h2>
-            <form onSubmit={(e) => { e.preventDefault(); if (profile.nome) nextStep(); }} className="space-y-4">
-              {['nome', 'email', 'telefone'].map((field) => (
-                <div key={field} className="flex flex-col">
-                  <label className="text-sm font-medium text-[#1A2733] uppercase mb-1">{field}</label>
-                  <input
-                    type={field === 'email' ? 'email' : 'text'}
-                    required={field === 'nome'}
-                    aria-label={`Campo para ${field}`}
-                    className="p-3 border border-gray-400 rounded bg-white text-[#1A2733] focus:ring-2 focus:ring-[#4A3026]"
-                    value={profile[field]}
-                    onChange={(e) => setProfile({ ...profile, [field]: e.target.value })}
-                  />
+            <form onSubmit={(e) => { e.preventDefault(); if (profile.nome) nextStep(); }} className="space-y-4 pb-8">
+              <div className="flex flex-col">
+                <label className="text-xs font-bold text-[#5C879C] uppercase mb-1">Nome Completo</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Seu nome"
+                  className="p-3 border border-gray-300 rounded bg-white text-[#1A2733]"
+                  value={profile.nome}
+                  onChange={(e) => setProfile({ ...profile, nome: e.target.value })}
+                />
+              </div>
+
+              <div className="flex flex-col">
+                <label className="text-xs font-bold text-[#5C879C] uppercase mb-1">E-mail</label>
+                <input
+                  type="email"
+                  required
+                  placeholder="seu@email.com"
+                  className="p-3 border border-gray-300 rounded bg-white text-[#1A2733]"
+                  value={profile.email}
+                  onChange={(e) => setProfile({ ...profile, email: e.target.value })}
+                />
+              </div>
+
+              <div className="flex flex-col">
+                <label className="text-xs font-bold text-[#5C879C] uppercase mb-1">Telefone / WhatsApp</label>
+                <input
+                  type="tel"
+                  placeholder="(00) 00000-0000"
+                  className="p-3 border border-gray-300 rounded bg-white text-[#1A2733]"
+                  value={profile.telefone}
+                  onChange={(e) => setProfile({ ...profile, telefone: e.target.value })}
+                />
+              </div>
+
+              <div className="flex flex-col">
+                <label className="text-xs font-bold text-[#5C879C] uppercase mb-1">Data de Aniversário</label>
+                <input
+                  type="date"
+                  className="p-3 border border-gray-300 rounded bg-white text-[#1A2733]"
+                  value={profile.aniversario}
+                  onChange={(e) => setProfile({ ...profile, aniversario: e.target.value })}
+                />
+              </div>
+
+              <div className="flex flex-col">
+                <label className="text-xs font-bold text-[#5C879C] uppercase mb-1">Gênero</label>
+                <div className="flex space-x-2">
+                  {['Feminino', 'Masculino', 'Outro'].map(g => (
+                    <button
+                      type="button"
+                      key={g}
+                      onClick={() => setProfile({ ...profile, genero: g })}
+                      className={`flex-1 py-2 text-sm border rounded ${profile.genero === g ? 'bg-[#4A3026] text-white border-[#4A3026]' : 'border-gray-300 text-gray-700'}`}
+                    >
+                      {g}
+                    </button>
+                  ))}
                 </div>
-              ))}
-              <button type="submit" className="w-full mt-6 bg-[#1A2733] text-[#F7F7F5] py-4 uppercase font-bold tracking-widest rounded hover:bg-[#4A3026]">
+              </div>
+
+              <button type="submit" className="w-full mt-4 bg-[#1A2733] text-[#F7F7F5] py-4 uppercase font-bold tracking-widest rounded hover:bg-[#4A3026]">
                 Continuar
               </button>
             </form>
           </div>
         );
 
-      case 10: // SCANNER DE BIOTIPO COM CÂMERA REAL E FRAME OVAL
+      case 5: { // Tela de percepção corrigida com botão explícito de avançar após escolher
+        const q = { key: 'percepcao', title: 'Como você quer ser percebida com este look? (Escolha até 2 opções)', options: ['Profissional', 'Confiante', 'Acessível', 'Criativa', 'Elegante', 'Marcante'] };
+        const selected = answers.percepcao || [];
+
+        return (
+          <div className="flex flex-col h-full p-6 max-w-md mx-auto w-full justify-center">
+            <h2 className="text-xl font-bold text-[#4A3026] mb-2">{q.title}</h2>
+            <p className="text-xs text-[#5C879C] mb-6">Selecione até 2 opções e clique em avançar.</p>
+            <div className="space-y-3 mb-6">
+              {q.options.map(opt => {
+                const isSelected = selected.includes(opt);
+                return (
+                  <button
+                    key={opt}
+                    onClick={() => handleOptionSelect(q.key, opt, true, 2)}
+                    className={`w-full text-left p-4 rounded border transition-all flex justify-between items-center ${
+                      isSelected ? 'bg-[#4A3026] text-white border-[#4A3026]' : 'bg-white text-gray-800 border-gray-300'
+                    }`}
+                  >
+                    <span>{opt}</span>
+                    {isSelected && <Check size={20} />}
+                  </button>
+                );
+              })}
+            </div>
+            <button 
+              onClick={nextStep}
+              disabled={selected.length === 0}
+              className={`w-full py-4 uppercase font-bold tracking-widest rounded transition-colors ${
+                selected.length > 0 ? 'bg-[#4A3026] text-white hover:bg-[#1A2733]' : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+              }`}
+            >
+              Avançar ({selected.length}/2)
+            </button>
+          </div>
+        );
+      }
+
+      case 10:
         return (
           <div className="flex flex-col items-center justify-center h-full p-4 bg-[#1A2733] text-[#F7F7F5] relative overflow-hidden text-center">
-            <h2 className="text-xl mb-4 font-light z-10 max-w-xs" tabIndex={0}>
+            <h2 className="text-xl mb-4 font-light z-10 max-w-xs">
               Análise Morfológica: Posicione seu corpo dentro do contorno Oval.
             </h2>
-
-            {/* Container da Câmera / Guia */}
             <div className="relative w-64 h-80 border-2 border-[#5C879C] rounded-3xl overflow-hidden mb-6 flex items-center justify-center shadow-2xl">
               <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover" />
-              
-              {/* Overlay Oval para Biotipo */}
-              <div 
-                className="absolute w-48 h-64 border-4 border-dashed border-amber-400 rounded-[50%] animate-pulse pointer-events-none flex items-center justify-center"
-                aria-hidden="true"
-              >
-                <span className="bg-[#1A2733]/80 text-amber-300 px-3 py-1 text-xs rounded-full font-bold">
-                  BIOTIPO OVAL
-                </span>
+              <div className="absolute w-48 h-64 border-4 border-dashed border-amber-400 rounded-[50%] animate-pulse pointer-events-none flex items-center justify-center">
+                <span className="bg-[#1A2733]/80 text-amber-300 px-3 py-1 text-xs rounded-full font-bold">BIOTIPO OVAL</span>
               </div>
-
-              <div className="absolute top-0 left-0 w-full h-1 bg-amber-400 shadow-[0_0_15px_#f59e0b] animate-[scan_2s_ease-in-out_infinite_alternate]"></div>
             </div>
-
-            <p className="text-amber-300 font-medium animate-pulse z-10 text-sm">
-              Mantenha os braços leves e afastados do corpo...
-            </p>
+            <p className="text-amber-300 font-medium animate-pulse z-10 text-sm">Analisando proporções corporais...</p>
           </div>
         );
 
-      case 11: // Resultado
+      case 11:
         return (
           <div className="flex flex-col h-full p-6 max-w-md mx-auto justify-center">
             <div className="flex items-center space-x-3 mb-4 text-[#4A3026]">
               <Sparkles className="text-[#5C879C]" />
-              <h2 className="text-2xl font-bold" tabIndex={0}>Análise Concluída!</h2>
+              <h2 className="text-2xl font-bold">Análise Concluída!</h2>
             </div>
-            
             <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 space-y-4 mb-6">
               <div>
                 <span className="text-xs text-[#5C879C] font-bold uppercase tracking-wider">Biotipo Identificado</span>
@@ -366,24 +416,20 @@ export default function AyanmoApp() {
                 <p className="text-xl font-medium text-[#1A2733]">{calculatedResult?.aparencia}</p>
               </div>
             </div>
-
             <button onClick={nextStep} className="w-full bg-[#4A3026] text-[#F7F7F5] py-4 uppercase font-bold tracking-widest rounded hover:bg-[#1A2733]">
               Ver Recomendações de Peças
             </button>
           </div>
         );
 
-      case 12: { // Vitrine Dinâmica por Biotipo
-        const items = getDynamicRecommendations(calculatedResult?.biotype || 'Oval', calculatedResult?.aparencia);
+      case 12: {
+        const items = getDynamicRecommendations(calculatedResult?.biotype || 'Oval');
         return (
           <div className="flex flex-col h-full bg-[#F7F7F5] overflow-y-auto pb-12 p-6">
             <div className="mb-6 p-4 bg-[#1A2733] text-[#F7F7F5] rounded-lg">
-              <h2 className="text-xl font-bold mb-1" tabIndex={0}>
-                Sugestões para Biotipo {calculatedResult?.biotype}
-              </h2>
+              <h2 className="text-xl font-bold mb-1">Sugestões para Biotipo {calculatedResult?.biotype}</h2>
               <p className="text-xs text-[#5C879C]">Peças selecionadas com foco em conforto, caimento e valorização corporal.</p>
             </div>
-
             <div className="space-y-6 max-w-md mx-auto w-full">
               {items.map(item => (
                 <div key={item.id} className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden p-4 flex flex-col gap-2">
@@ -396,7 +442,6 @@ export default function AyanmoApp() {
                     <button 
                       onClick={() => window.open(item.link, '_blank')}
                       className="px-4 py-2 bg-[#4A3026] text-white rounded text-sm font-bold flex items-center space-x-1 hover:bg-[#1A2733]"
-                      aria-label={`Comprar ${item.desc} por ${item.price} na loja ${item.store}`}
                     >
                       <ShoppingBag size={16} />
                       <span>Comprar</span>
@@ -409,36 +454,32 @@ export default function AyanmoApp() {
         );
       }
 
-      default: { // Questionários Múltipla Escolha
+      default: {
         const questions = {
           3: { key: 'objetivo', title: 'O que você procura hoje?', options: ['Look Casual', 'Look Esportivo', 'Look para Trabalho', 'Look de Festa', 'Moda Praia', 'Look para Viagem', 'Moda Íntima'] },
           4: { key: 'prioridade', title: 'O que mais importa para você em uma roupa?', options: ['Conforto', 'Elegância', 'Delicadeza', 'Sensualidade', 'Impacto', 'Discrição', 'Criatividade'] },
-          5: { key: 'percepcao', title: 'Como você quer ser percebida com este look? (Até 2 opções)', options: ['Profissional', 'Confiante', 'Acessível', 'Criativa', 'Elegante', 'Marcante'], isMulti: true, max: 2 },
           6: { key: 'guardaRoupa', title: 'Do que você mais gosta no seu guarda-roupa?', options: ['Roupas confortáveis', 'Peças bem cortadas', 'Roupas delicadas', 'Itens básicos', 'Peças marcantes'] },
           7: { key: 'tecido', title: 'Qual tipo de tecido te atrai mais ao toque?', options: ['Macio e confortável', 'Fino e sofisticado', 'Leve e fluído', 'Estruturado'] },
           8: { key: 'cores', title: 'Como você prefere misturar as cores?', options: ['Cores intensas', 'Tons pastéis', 'Cores neutras (preto, branco)', 'Cores contrastantes'] },
-          9: { key: 'estampas', title: 'Se fosse escolher uma estampa, qual seria?', options: ['Neutra sem estampa', 'Estampa pequena e discreta', 'Geométrica ou abstrata', 'Floral delicado'] }
+          9: { key: 'estampas', title: 'Qual tipo de estampa melhor combina com você?', options: ['Neutra sem estampa', 'Estampa pequena e discreta', 'Geométrica ou abstrata', 'Floral delicado'] }
         };
         const q = questions[step];
         if (!q) return null;
 
         return (
           <div className="flex flex-col h-full p-6 max-w-md mx-auto w-full justify-center">
-            <h2 className="text-xl md:text-2xl font-bold text-[#4A3026] mb-6" tabIndex={0}>{q.title}</h2>
+            <h2 className="text-xl md:text-2xl font-bold text-[#4A3026] mb-6">{q.title}</h2>
             <div className="space-y-3">
               {q.options.map(opt => (
                 <button
                   key={opt}
-                  onClick={() => handleOptionSelect(q.key, opt, q.isMulti, q.max)}
+                  onClick={() => handleOptionSelect(q.key, opt)}
                   className={`w-full text-left p-4 rounded border transition-all flex justify-between items-center ${
-                    (q.isMulti ? answers[q.key]?.includes(opt) : answers[q.key] === opt)
-                      ? 'bg-[#4A3026] text-white border-[#4A3026]'
-                      : 'bg-white text-gray-800 border-gray-300 hover:border-[#4A3026]'
+                    answers[q.key] === opt ? 'bg-[#4A3026] text-white border-[#4A3026]' : 'bg-white text-gray-800 border-gray-300 hover:border-[#4A3026]'
                   }`}
-                  aria-label={opt}
                 >
                   <span>{opt}</span>
-                  {(q.isMulti ? answers[q.key]?.includes(opt) : answers[q.key] === opt) && <Check size={20} />}
+                  {answers[q.key] === opt && <Check size={20} />}
                 </button>
               ))}
             </div>
@@ -450,7 +491,6 @@ export default function AyanmoApp() {
 
   return (
     <div className="h-screen w-full bg-[#F7F7F5] relative overflow-hidden">
-      {/* Barra Superior Acessível com botão Reouvir */}
       {step > 0 && (
         <div className="absolute top-4 left-4 right-4 z-50 flex justify-between items-center">
           <button onClick={prevStep} className="p-2 bg-white rounded-full shadow text-[#1A2733]" aria-label="Voltar tela">
@@ -461,7 +501,6 @@ export default function AyanmoApp() {
             <button 
               onClick={() => speakCurrentScreen(step)} 
               className="px-3 py-1 bg-[#5C879C] text-white text-xs font-bold rounded-full shadow flex items-center space-x-1"
-              aria-label="Reouvir mensagem em voz alta"
             >
               <RotateCcw size={14} />
               <span>Reouvir Tela</span>
