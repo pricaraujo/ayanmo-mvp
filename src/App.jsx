@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Camera, ChevronLeft, ShoppingBag, ArrowRight, Check, Sparkles } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Camera, ChevronLeft, ShoppingBag, ArrowRight, Check, Sparkles, Volume2 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, addDoc, serverTimestamp } from 'firebase/firestore';
@@ -17,6 +17,38 @@ try {
   console.log("Firebase init skipped or failed (running in mock mode):", e);
 }
 
+// --- Hook de Acessibilidade / Audiodescrição ---
+function useAudioDescription(enabled = false) {
+  const speak = useCallback((text) => {
+    if (!enabled || !('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'pt-BR';
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    window.speechSynthesis.speak(utterance);
+  }, [enabled]);
+
+  return { speak };
+}
+
+// --- Motor de Regras de Estilo ---
+function calculateStyleProfile(answers) {
+  const scores = { Esportivo: 0, Elegante: 0, Criativo: 0, Clássico: 0 };
+
+  if (answers.prioridade === 'Conforto' || answers.tecido === 'Macio e confortável') scores.Esportivo += 2;
+  if (answers.prioridade === 'Elegante' || answers.guardaRoupa === 'Roupas elegantes e bem cortadas') scores.Elegante += 2;
+  if (answers.percepcao?.includes('Criativa') || answers.estampas === 'Várias estampas misturadas') scores.Criativo += 2;
+  if (answers.objetivo === 'Look para Trabalho' || answers.cores === 'Cores neutras (preto, branco, cinza)') scores.Clássico += 2;
+
+  const sortedStyles = Object.keys(scores).sort((a, b) => scores[b] - scores[a]);
+  return {
+    aparencia: sortedStyles[0] || 'Esportiva',
+    comunicacao: sortedStyles[1] || 'Elegante',
+    comportamento: sortedStyles[2] || 'Exuberante'
+  };
+}
+
 // --- Componente Principal ---
 export default function AyanmoApp() {
   const [user, setUser] = useState(null);
@@ -26,16 +58,19 @@ export default function AyanmoApp() {
 
   // Estados dos Formulários e Respostas
   const [profile, setProfile] = useState({ nome: '', genero: '', email: '', telefone: '', aniversario: '' });
-  const [accessibility, setAccessibility] = useState(null);
+  const [accessibility, setAccessibility] = useState(false);
   const [answers, setAnswers] = useState({
     objetivo: '',
     prioridade: '',
-    percepcao: [], // Até 2 opções
+    percepcao: [],
     guardaRoupa: '',
     tecido: '',
     cores: '',
     estampas: ''
   });
+  const [calculatedStyle, setCalculatedStyle] = useState({ aparencia: '', comunicacao: '', comportamento: '' });
+
+  const { speak } = useAudioDescription(accessibility);
 
   // Autenticação Silenciosa (Firebase)
   useEffect(() => {
@@ -60,11 +95,40 @@ export default function AyanmoApp() {
     document.head.appendChild(link);
   }, []);
 
+  // Audiodescrição automática ao mudar de passo
+  useEffect(() => {
+    if (!accessibility) return;
+    const texts = {
+      0: "Bem-vinda ao Ayanmo. Sua assistente de estilo. Toque para começar.",
+      1: "Por favor, informe seus dados cadastrais.",
+      2: "Você precisa de algum recurso de acessibilidade?",
+      3: "O que você procura hoje?",
+      4: "O que mais importa pra você numa roupa?",
+      5: "Como você quer ser percebida com este look? Escolha até duas opções.",
+      6: "Do que você mais gosta no seu guarda-roupa?",
+      7: "Qual tipo de tecido te atrai mais?",
+      8: "Como você mistura as cores na sua roupa?",
+      9: "Se fosse escolher uma estampa, qual seria?",
+      10: "Iniciando escaneamento de biotipo. Posicione-se no centro e abra os braços.",
+      11: "Análise concluída com sucesso. Veja seus estilos predominantes.",
+      12: "Vitrine de recomendações selecionadas especialmente para o seu perfil."
+    };
+    if (texts[step]) speak(texts[step]);
+  }, [step, accessibility, speak]);
+
   // Navegação Suave
   const nextStep = () => {
     setAnimatingStep(true);
     setTimeout(() => {
-      setStep(s => s + 1);
+      setStep(s => {
+        const next = s + 1;
+        if (next === 11) {
+          const res = calculateStyleProfile(answers);
+          setCalculatedStyle(res);
+          saveCompleteAssessment(res);
+        }
+        return next;
+      });
       setAnimatingStep(false);
     }, 300);
   };
@@ -77,7 +141,7 @@ export default function AyanmoApp() {
     }, 300);
   };
 
-  // Auto-avançar na Visão Computacional (Scanner Mock)
+  // Auto-avançar no Scanner de Biotipo
   useEffect(() => {
     if (step === 10) {
       const timer = setTimeout(() => { nextStep(); }, 4000);
@@ -85,28 +149,30 @@ export default function AyanmoApp() {
     }
   }, [step]);
 
-  // Salvar no Firebase após cadastro
-  const handleRegisterSubmit = async (e) => {
-    e.preventDefault();
-    if (!profile.nome) return;
-    setLoading(true);
+  // Salvar no Firebase
+  const saveCompleteAssessment = async (finalStyle) => {
     try {
       if (db && user) {
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'ayanmo-default';
-        await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'profiles'), {
-          ...profile,
+        await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'assessments'), {
+          profile,
+          answers,
+          accessibility,
+          calculatedStyle: finalStyle,
           createdAt: serverTimestamp()
         });
       }
     } catch (err) {
-      console.error("Erro ao salvar:", err);
-    } finally {
-      setLoading(false);
-      nextStep();
+      console.error("Erro ao salvar no Firebase:", err);
     }
   };
 
-  // Tratamento de Seleção de Opções
+  const handleRegisterSubmit = (e) => {
+    e.preventDefault();
+    if (!profile.nome) return;
+    nextStep();
+  };
+
   const handleOptionSelect = (key, value, isMulti = false, max = 1) => {
     if (isMulti) {
       let current = [...answers[key]];
@@ -118,7 +184,6 @@ export default function AyanmoApp() {
       setAnswers({ ...answers, [key]: current });
     } else {
       setAnswers({ ...answers, [key]: value });
-      // Avança automaticamente para opções únicas com um pequeno delay visual
       setTimeout(nextStep, 400); 
     }
   };
@@ -126,7 +191,7 @@ export default function AyanmoApp() {
   // --- Renderização de Telas ---
   const renderStep = () => {
     switch (step) {
-      case 0: // Splash
+      case 0:
         return (
           <div className="flex flex-col items-center justify-center h-full text-center p-8 cursor-pointer" onClick={nextStep}>
             <div className="mb-8 border-4 border-[#4A3026] p-6 rotate-45">
@@ -142,11 +207,11 @@ export default function AyanmoApp() {
           </div>
         );
 
-      case 1: // Cadastro
+      case 1:
         return (
-          <div className="flex flex-col h-full p-6 md:p-12 max-w-md mx-auto">
+          <div className="flex flex-col h-full p-6 md:p-12 max-w-md mx-auto justify-center">
             <h2 className="text-2xl text-[#4A3026] mb-8 font-semibold" style={{ fontFamily: "'Poppins', sans-serif" }}>Que bom ter você aqui! Por favor, informe seus dados.</h2>
-            <form onSubmit={handleRegisterSubmit} className="space-y-6 flex-1">
+            <form onSubmit={handleRegisterSubmit} className="space-y-6">
               {['nome', 'email', 'telefone', 'aniversario'].map((field) => (
                 <div key={field} className="relative border-b border-[#1A2733]/20 pb-1">
                   <input
@@ -170,48 +235,46 @@ export default function AyanmoApp() {
                   ))}
                 </div>
               </div>
-              <button type="submit" disabled={loading} className="w-full mt-8 bg-[#1A2733] text-[#F7F7F5] py-4 uppercase tracking-widest text-sm font-medium hover:bg-[#4A3026] transition-colors">
-                {loading ? 'Salvando...' : 'Continuar'}
+              <button type="submit" className="w-full mt-8 bg-[#1A2733] text-[#F7F7F5] py-4 uppercase tracking-widest text-sm font-medium hover:bg-[#4A3026] transition-colors">
+                Continuar
               </button>
             </form>
           </div>
         );
 
-      case 2: // Acessibilidade
+      case 2:
         return (
           <div className="flex flex-col items-center justify-center h-full p-6 text-center max-w-md mx-auto">
-             <h2 className="text-2xl text-[#4A3026] mb-12" style={{ fontFamily: "'Poppins', sans-serif" }}>{profile.nome ? profile.nome.split(' ')[0] : 'Usuário'}, você precisa de algum recurso de acessibilidade?</h2>
+             <Volume2 size={48} className="text-[#4A3026] mb-6 animate-bounce" />
+             <h2 className="text-2xl text-[#4A3026] mb-12" style={{ fontFamily: "'Poppins', sans-serif" }}>{profile.nome ? profile.nome.split(' ')[0] : 'Usuário'}, você precisa de audiodescrição e recursos de acessibilidade?</h2>
              <div className="flex space-x-6 w-full">
-               <button onClick={() => { setAccessibility(true); nextStep(); }} className="flex-1 py-4 border-2 border-[#1A2733] text-[#1A2733] hover:bg-[#1A2733] hover:text-[#F7F7F5] transition-colors">Sim</button>
-               <button onClick={() => { setAccessibility(false); nextStep(); }} className="flex-1 py-4 border-2 border-[#1A2733] text-[#1A2733] hover:bg-[#1A2733] hover:text-[#F7F7F5] transition-colors">Não</button>
+               <button onClick={() => { setAccessibility(true); nextStep(); }} className="flex-1 py-4 border-2 border-[#1A2733] text-[#1A2733] hover:bg-[#1A2733] hover:text-[#F7F7F5] transition-colors font-medium">Sim</button>
+               <button onClick={() => { setAccessibility(false); nextStep(); }} className="flex-1 py-4 border-2 border-[#1A2733] text-[#1A2733] hover:bg-[#1A2733] hover:text-[#F7F7F5] transition-colors font-medium">Não</button>
              </div>
           </div>
         );
 
-      case 5: // Percepção (Até 2 opções)
+      case 5:
         return (
-          <div className="flex flex-col h-full animate-fade-in max-w-md mx-auto w-full">
-            <h2 className="text-2xl md:text-3xl text-[var(--color-ayanmo-brown)] mb-2 tracking-tight" style={{ fontFamily: "'Poppins', sans-serif" }}>Como você quer ser percebida com este look?</h2>
-            <p className="text-[var(--color-ayanmo-blue)] mb-8">Escolha até 2 opções.</p>
-            <div className="flex flex-col gap-3 mb-8">
+          <div className="flex flex-col h-full p-6 md:p-12 max-w-md mx-auto justify-center w-full">
+            <h2 className="text-2xl md:text-3xl text-[#4A3026] mb-2 tracking-tight" style={{ fontFamily: "'Poppins', sans-serif" }}>Como você quer ser percebida com este look?</h2>
+            <p className="text-[#5C879C] mb-8">Escolha até 2 opções.</p>
+            <div className="flex flex-col gap-3">
               {['Profissional', 'Confiante', 'Acessível', 'Criativa', 'Elegante', 'Marcante'].map((opcao) => (
                 <button
                   key={opcao}
                   onClick={() => {
                     const selecionadas = answers.percepcao || [];
                     const isDeselecting = selecionadas.includes(opcao);
-                    
                     handleOptionSelect('percepcao', opcao, true, 2);
-                    
-                    // Avança automaticamente quando for a segunda escolha válida
                     if (!isDeselecting && selecionadas.length === 1) {
                       setTimeout(() => nextStep(), 400);
                     }
                   }}
                   className={`p-4 border text-left flex justify-between items-center transition-all duration-300 ${
                     answers.percepcao?.includes(opcao)
-                      ? 'bg-[var(--color-ayanmo-brown)] border-[var(--color-ayanmo-brown)] text-[var(--color-ayanmo-light)]'
-                      : 'bg-transparent border-gray-300 text-gray-700 hover:border-[var(--color-ayanmo-brown)]'
+                      ? 'bg-[#4A3026] border-[#4A3026] text-[#F7F7F5]'
+                      : 'bg-transparent border-gray-300 text-gray-700 hover:border-[#4A3026]'
                   }`}
                 >
                   {opcao}
@@ -227,7 +290,7 @@ export default function AyanmoApp() {
       case 6:
       case 7:
       case 8:
-      case 9: // Agrupando todas as perguntas de múltipla escolha simples
+      case 9: {
         const questions = {
           3: { key: 'objetivo', title: 'O que você procura hoje?', options: ['Look Casual', 'Look Esportivo', 'Look para Trabalho', 'Look de Festa', 'Moda Praia', 'Look para Viagem', 'Moda Íntima'] },
           4: { key: 'prioridade', title: 'O que mais importa pra você numa roupa?', options: ['Conforto', 'Elegância', 'Delicadeza', 'Sensualidade', 'Impacto', 'Discrição', 'Criatividade'] },
@@ -238,17 +301,17 @@ export default function AyanmoApp() {
         };
         const currentQ = questions[step];
         return (
-          <div className="flex flex-col h-full p-6 md:p-12 max-w-md mx-auto w-full animate-fade-in">
-            <h2 className="text-2xl md:text-3xl text-[var(--color-ayanmo-brown)] mb-8 leading-tight tracking-tight" style={{ fontFamily: "'Poppins', sans-serif" }}>{currentQ.title}</h2>
-            <div className="flex-1 overflow-y-auto space-y-3 pb-8">
+          <div className="flex flex-col h-full p-6 md:p-12 max-w-md mx-auto w-full justify-center">
+            <h2 className="text-2xl md:text-3xl text-[#4A3026] mb-8 leading-tight tracking-tight" style={{ fontFamily: "'Poppins', sans-serif" }}>{currentQ.title}</h2>
+            <div className="space-y-3">
               {currentQ.options.map((opt) => (
                 <button 
                   key={opt} 
                   onClick={() => handleOptionSelect(currentQ.key, opt)}
                   className={`w-full text-left p-4 border transition-all duration-300 flex justify-between items-center ${
                     answers[currentQ.key] === opt 
-                    ? 'border-[var(--color-ayanmo-brown)] bg-[var(--color-ayanmo-brown)] text-[var(--color-ayanmo-light)]' 
-                    : 'border-gray-300 text-gray-700 hover:border-[var(--color-ayanmo-brown)]'
+                    ? 'border-[#4A3026] bg-[#4A3026] text-[#F7F7F5]' 
+                    : 'border-gray-300 text-gray-700 hover:border-[#4A3026]'
                   }`}
                 >
                   {opt}
@@ -258,67 +321,64 @@ export default function AyanmoApp() {
             </div>
           </div>
         );
+      }
 
-      case 10: // Visão Computacional (Scanner Mock)
+      case 10:
         return (
           <div className="flex flex-col items-center justify-center h-full p-6 bg-[#1A2733] text-[#F7F7F5] relative overflow-hidden">
             <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at center, #5C879C 0%, transparent 70%)' }}></div>
             <h2 className="text-2xl text-center mb-12 font-light z-10 max-w-sm" style={{ fontFamily: "'Poppins', sans-serif" }}>
               Para realizarmos a análise do seu biotipo, posicione-se no local indicado, abra os braços e não se mova.
             </h2>
-            
             <div className="relative w-64 h-80 border border-[#5C879C]/50 mb-8 flex items-center justify-center z-10">
               <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-[#5C879C]"></div>
               <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-[#5C879C]"></div>
               <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-[#5C879C]"></div>
               <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-[#5C879C]"></div>
-              
               <Camera size={48} className="text-[#5C879C]/30" />
-              
               <div className="absolute top-0 left-0 w-full h-1 bg-[#5C879C] shadow-[0_0_15px_#5C879C] animate-[scan_2s_ease-in-out_infinite_alternate]"></div>
             </div>
-            
-            <p className="text-[#5C879C] animate-pulse z-10 uppercase tracking-widest text-sm">Analisando proporções...</p>
+            <p className="text-[#5C879C] animate-pulse z-10 uppercase tracking-widest text-sm">Analisando proporções corporais...</p>
           </div>
         );
 
-      case 11: // Resultado de Estilo
+      case 11:
         return (
-          <div className="flex flex-col h-full p-6 md:p-12 max-w-md mx-auto">
-            <div className="flex items-center space-x-3 mb-8 text-[#4A3026]">
+          <div className="flex flex-col h-full p-6 md:p-12 max-w-md mx-auto justify-center">
+            <div className="flex items-center space-x-3 mb-6 text-[#4A3026]">
               <Sparkles className="text-[#5C879C]" />
               <h2 className="text-2xl font-semibold" style={{ fontFamily: "'Poppins', sans-serif" }}>Quanta personalidade!</h2>
             </div>
-            <p className="text-[#1A2733] mb-8 font-light">Estes são os seus estilos predominantes baseados na nossa análise conjunta:</p>
+            <p className="text-[#1A2733] mb-8 font-light">Estes são os seus estilos predominantes calculados com base nas suas preferências:</p>
             
-            <div className="space-y-6 flex-1">
+            <div className="space-y-6">
               <div className="border-l-2 border-[#4A3026] pl-4">
-                <p className="text-xs uppercase text-[#5C879C] tracking-widest mb-1">Aparência</p>
-                <p className="text-xl text-[#1A2733]" style={{ fontFamily: "'Poppins', sans-serif" }}>Esportiva / Clássica</p>
+                <p className="text-xs uppercase text-[#5C879C] tracking-widest mb-1">Aparência Principal</p>
+                <p className="text-xl text-[#1A2733]" style={{ fontFamily: "'Poppins', sans-serif" }}>{calculatedStyle.aparencia}</p>
               </div>
               <div className="border-l-2 border-[#1A2733] pl-4">
                 <p className="text-xs uppercase text-[#5C879C] tracking-widest mb-1">Comunicação</p>
-                <p className="text-xl text-[#1A2733]" style={{ fontFamily: "'Poppins', sans-serif" }}>Elegante</p>
+                <p className="text-xl text-[#1A2733]" style={{ fontFamily: "'Poppins', sans-serif" }}>{calculatedStyle.comunicacao}</p>
               </div>
               <div className="border-l-2 border-[#5C879C] pl-4">
                 <p className="text-xs uppercase text-[#5C879C] tracking-widest mb-1">Comportamento</p>
-                <p className="text-xl text-[#1A2733]" style={{ fontFamily: "'Poppins', sans-serif" }}>Exuberante</p>
+                <p className="text-xl text-[#1A2733]" style={{ fontFamily: "'Poppins', sans-serif" }}>{calculatedStyle.comportamento}</p>
               </div>
             </div>
 
-            <button onClick={nextStep} className="mt-8 w-full bg-[#4A3026] text-[#F7F7F5] py-4 uppercase tracking-widest text-sm font-medium hover:bg-[#1A2733] transition-colors">
+            <button onClick={nextStep} className="mt-10 w-full bg-[#4A3026] text-[#F7F7F5] py-4 uppercase tracking-widest text-sm font-medium hover:bg-[#1A2733] transition-colors">
               Ver minhas recomendações
             </button>
           </div>
         );
 
-      case 12: { // Vitrine
+      case 12: {
         const recommendations = [
           { 
             id: 1, 
             image: "https://images.unsplash.com/photo-1539008835657-9e8e9680c956?auto=format&fit=crop&q=80&w=600", 
             desc: "Blazer Estruturado Marrom", 
-            price: "R\$ 359,90",
+            price: "R$ 359,90",
             store: "Zara",
             link: "https://www.zara.com/br/" 
           },
@@ -326,7 +386,7 @@ export default function AyanmoApp() {
             id: 2, 
             image: "https://images.unsplash.com/photo-1490481651871-ab68de25d43d?auto=format&fit=crop&q=80&w=600", 
             desc: "Conjunto Alfaiataria Leve", 
-            price: "R\$ 289,50",
+            price: "R$ 289,50",
             store: "Amaro",
             link: "https://amaro.com/br/pt/" 
           },
@@ -334,19 +394,19 @@ export default function AyanmoApp() {
             id: 3, 
             image: "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&q=80&w=600", 
             desc: "Vestido Midi Fluído", 
-            price: "R\$ 199,90",
+            price: "R$ 199,90",
             store: "Renner",
             link: "https://www.lojasrenner.com.br/" 
           }
         ];
 
         return (
-          <div className="flex flex-col h-full bg-[var(--color-ayanmo-light)] overflow-y-auto pb-12">
-            <div className="p-6 md:p-8 bg-[#1A2733] text-[var(--color-ayanmo-light)]">
+          <div className="flex flex-col h-full bg-[#F7F7F5] overflow-y-auto pb-12">
+            <div className="p-6 md:p-8 bg-[#1A2733] text-[#F7F7F5]">
               <h2 className="text-2xl font-light mb-2" style={{ fontFamily: "'Poppins', sans-serif" }}>
-                {profile.nome ? profile.nome.split(' ')[0] : 'Wendy'}, aqui estão suas opções.
+                {profile.nome ? profile.nome.split(' ')[0] : 'Visitante'}, aqui estão suas opções.
               </h2>
-              <p className="text-[#5C879C] text-sm">Peças selecionadas com base no seu perfil.</p>
+              <p className="text-[#5C879C] text-sm">Peças selecionadas com base no seu biotipo e perfil.</p>
             </div>
             
             <div className="p-6 grid gap-8 max-w-2xl mx-auto w-full">
@@ -382,7 +442,7 @@ export default function AyanmoApp() {
   };
 
   return (
-    <div className="h-screen w-full bg-[var(--color-ayanmo-light)] relative">
+    <div className="h-screen w-full bg-[#F7F7F5] relative">
       {step > 0 && step < 10 && (
         <button 
           onClick={prevStep} 
