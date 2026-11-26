@@ -25,10 +25,10 @@ try {
     db = getFirestore(app);
   }
 } catch (e) {
-  console.log('Firebase init skipped or failed (running in mock mode):', e);
+  console.log('Firebase init skipped or failed:', e);
 }
 
-// --- Hook de Audiodescrição / Leitor de Tela ---
+// --- Hook de Audiodescrição ---
 function useAudioDescription(enabled = true) {
   const speak = useCallback(
     (text) => {
@@ -36,7 +36,7 @@ function useAudioDescription(enabled = true) {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'pt-BR';
-      utterance.rate = 0.96;
+      utterance.rate = 0.95;
       utterance.pitch = 1.0;
       window.speechSynthesis.speak(utterance);
     },
@@ -44,363 +44,216 @@ function useAudioDescription(enabled = true) {
   );
 
   const stop = useCallback(() => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
   }, []);
 
   return { speak, stop };
 }
 
-// --- Lógica de Visão Computacional / Medidas Simétricas por Biótipo ---
-// Avalia simetria entre ombros/busto, cintura e quadril (em cm ou proporção normalizada)
-function classifyBiotypeFromMeasurements({ shouldersCm, waistCm, hipsCm, symmetryScore = 0.95 }) {
+// --- Interpretação de Biótipo (Medidas Simétricas + Proporções) ---
+function interpretBiotype({ shouldersCm, waistCm, hipsCm, fallbackBiotype }) {
   const s = Number(shouldersCm) || 96;
   const w = Number(waistCm) || 74;
   const h = Number(hipsCm) || 100;
 
-  const diffSH = Math.abs(s - h); // diferença ombro vs quadril
+  const diffSH = Math.abs(s - h);
   const waistToHip = w / Math.max(h, 1);
   const waistToShoulder = w / Math.max(s, 1);
 
-  let biotype = 'Ampulheta';
-  let rationale =
-    'Proporções equilibradas entre ombros e quadril com cintura definida, favorecendo cortes que acompanham a linha natural sem rigidez excessiva.';
+  let biotype = fallbackBiotype || 'Ampulheta';
 
   if (h - s >= 6 && waistToHip > 0.72) {
-    biotype = 'Pêra (Triângulo)';
-    rationale =
-      'Quadril mais largo que os ombros; a consultoria de estilo favorece pontos de luz, estrutura ou decotes na parte superior e caimento fluido na parte inferior.';
+    biotype = 'Triângulo';
   } else if (s - h >= 6 && waistToShoulder > 0.72) {
-    biotype = 'Triângulo Invertido';
-    rationale =
-      'Ombros/tórax mais amplos que o quadril; recomenda-se suavizar a linha dos ombros e trazer volume ou movimento equilibrado para a região inferior.';
-  } else if (diffSH <= 5 && waistToHip >= 0.82 && waistToShoulder >= 0.82) {
     biotype = 'Retângulo';
-    rationale =
-      'Medidas simétricas e lineares entre ombros, cintura e quadril; cortes transpassados, cintos estratégicos ou texturas ajudam a criar contorno.';
   } else if (waistToHip >= 0.88 && waistToShoulder >= 0.88) {
     biotype = 'Oval';
-    rationale =
-      'Concentração central de volume; linhas verticais, decotes em V e tecidos leves/fluidos alongam a silhueta com conforto e liberdade de movimento.';
-  } else {
+  } else if (diffSH <= 5 && waistToHip < 0.82) {
     biotype = 'Ampulheta';
-    rationale =
-      'Harmonia simétrica entre ombros e quadril com cintura marcada; valoriza peças com bom caimento que respeitam as proporções naturais.';
+  } else if (diffSH <= 5 && waistToHip >= 0.82) {
+    biotype = 'Retângulo';
   }
 
+  return biotype;
+}
+
+// --- Motor Dinâmico de Estilo + Biotipo ---
+function calculateStyleProfile(answers, biotype) {
+  const scores = { Esportivo: 0, Elegante: 0, Criativo: 0, Clássico: 0, Dramático: 0 };
+
+  const prioridadeList = Array.isArray(answers.prioridade) ? answers.prioridade : answers.prioridade ? [answers.prioridade] : [];
+  const tecidoList = Array.isArray(answers.tecido) ? answers.tecido : answers.tecido ? [answers.tecido] : [];
+  const guardaRoupaList = Array.isArray(answers.guardaRoupa) ? answers.guardaRoupa : answers.guardaRoupa ? [answers.guardaRoupa] : [];
+  const percepcaoList = Array.isArray(answers.percepcao) ? answers.percepcao : [];
+  const estampasList = Array.isArray(answers.estampas) ? answers.estampas : answers.estampas ? [answers.estampas] : [];
+  const coresList = Array.isArray(answers.cores) ? answers.cores : answers.cores ? [answers.cores] : [];
+  const objetivoVal = answers.objetivo || '';
+
+  if (prioridadeList.includes('Conforto') || tecidoList.includes('Macio e confortável')) scores.Esportivo += 2;
+  if (prioridadeList.includes('Elegância') || guardaRoupaList.includes('Roupas elegantes e bem cortadas')) scores.Elegante += 2;
+  if (percepcaoList.includes('Criativa') || estampasList.includes('Várias estampas misturadas')) scores.Criativo += 2;
+  if (objetivoVal === 'Look para Trabalho' || coresList.includes('Cores neutras (preto, branco, cinza)')) scores.Clássico += 2;
+  if (percepcaoList.includes('Marcante') || percepcaoList.includes('Confiante')) scores.Dramático += 2;
+
+  const sortedStyles = Object.keys(scores).sort((a, b) => scores[b] - scores[a]);
+
+  const biotypeGuide = {
+    Oval: {
+      title: 'Biotipo Oval',
+      tip: 'Foque em decotes em V, tecidos fluídos e linhas verticais que alongam a silhueta, disfarçando o volume central.',
+      clothing: 'Blazers alongados, vestidos envelope e calças pantalona.'
+    },
+    Ampulheta: {
+      title: 'Biotipo Ampulheta',
+      tip: 'O objetivo é valorizar a cintura marcada com peças que acompanhem as curvas naturais sem excesso de volume.',
+      clothing: 'Vestidos acinturados, cintos marcantes e peças transpassadas.'
+    },
+    Retângulo: {
+      title: 'Biotipo Retângulo',
+      tip: 'Crie a ilusão de curvas definindo mais a cintura e adicionando volume nos ombros ou quadris.',
+      clothing: 'Blusas com babados, saias evasê e cintos na cintura.'
+    },
+    Triângulo: {
+      title: 'Biotipo Triângulo (Pêra)',
+      tip: 'Valorize a parte superior do corpo, trazendo atenção para ombros e colo, equilibrando com partes inferiores retas.',
+      clothing: 'Blusas estruturadas, decotes amplos e calças de corte reto.'
+    }
+  };
+
+  const resolvedBiotype = biotype || 'Oval';
+
   return {
-    biotype,
-    rationale,
-    symmetryIndex: Number(symmetryScore.toFixed(2)),
-    measurements: { shouldersCm: s, waistCm: w, hipsCm: h }
+    aparencia: sortedStyles[0] || 'Elegante',
+    comunicacao: sortedStyles[1] || 'Confiante',
+    comportamento: sortedStyles[2] || 'Acessível',
+    biotype: resolvedBiotype,
+    guide: biotypeGuide[resolvedBiotype] || biotypeGuide.Oval
   };
 }
 
-// --- Motor de Estilo (Groundtruth ISA + AYANMO) ---
-function calculateStyleProfile(answers, biotypeData) {
-  const styleScores = {
-    Clássico: 0,
-    Elegante: 0,
-    Esportivo: 0,
-    Criativo: 0,
-    Dramático: 0,
-    Romântico: 0,
-    Natural: 0
-  };
-
-  const priorities = answers.prioridade || [];
-  const perceptions = answers.percepcao || []; // Desejo de imagem (até 2)
-  const fabrics = answers.tecido || [];
-  const colors = answers.cores || [];
-  const prints = answers.estampas || [];
-  const wardrobe = answers.guardaRoupa || [];
-  const occasion = answers.ocasiao || '';
-
-  // Prioridades ("O que mais importa pra você numa roupa?")
-  if (priorities.includes('Conforto')) {
-    styleScores.Natural += 2;
-    styleScores.Esportivo += 2;
-  }
-  if (priorities.includes('Elegância')) {
-    styleScores.Elegante += 3;
-    styleScores.Clássico += 1;
-  }
-  if (priorities.includes('Delicadeza')) {
-    styleScores.Romântico += 3;
-  }
-  if (priorities.includes('Sensualidade')) {
-    styleScores.Dramático += 2;
-    styleScores.Elegante += 1;
-  }
-  if (priorities.includes('Impacto')) {
-    styleScores.Dramático += 3;
-    styleScores.Criativo += 1;
-  }
-  if (priorities.includes('Discrição')) {
-    styleScores.Clássico += 2;
-    styleScores.Natural += 1;
-  }
-  if (priorities.includes('Criatividade')) {
-    styleScores.Criativo += 3;
-  }
-
-  // Desejo de imagem (até 2)
-  perceptions.forEach((p) => {
-    if (p === 'Profissional') styleScores.Clássico += 2;
-    if (p === 'Confiante') styleScores.Elegante += 2;
-    if (p === 'Acessível') styleScores.Natural += 2;
-    if (p === 'Criativa') styleScores.Criativo += 2;
-    if (p === 'Elegante') styleScores.Elegante += 2;
-    if (p === 'Marcante') styleScores.Dramático += 2;
-  });
-
-  // Tecidos, cores, estampas e guarda-roupa
-  if (fabrics.some((t) => t.includes('Macio') || t.includes('Leve') || t.includes('Neutro'))) {
-    styleScores.Natural += 1;
-  }
-  if (fabrics.some((t) => t.includes('Fino') || t.includes('Estruturado'))) {
-    styleScores.Elegante += 1;
-    styleScores.Clássico += 1;
-  }
-  if (fabrics.some((t) => t.includes('Justo') || t.includes('Colorido'))) {
-    styleScores.Dramático += 1;
-    styleScores.Criativo += 1;
-  }
-
-  if (colors.some((c) => c.includes('Neutras') || c.includes('mesmas'))) styleScores.Clássico += 1;
-  if (colors.some((c) => c.includes('Contrastantes') || c.includes('tendências'))) styleScores.Criativo += 1;
-  if (colors.some((c) => c.includes('Suaves') || c.includes('parecidos'))) styleScores.Romântico += 1;
-
-  if (prints.some((e) => e.includes('Floral') || e.includes('Pequena'))) styleScores.Romântico += 1;
-  if (prints.some((e) => e.includes('Geométrica') || e.includes('Misturada'))) styleScores.Criativo += 1;
-  if (prints.some((e) => e.includes('Listrada') || e.includes('Neutra'))) styleScores.Clássico += 1;
-  if (prints.some((e) => e.includes('Animal'))) styleScores.Dramático += 1;
-
-  if (wardrobe.some((w) => w.includes('confortáveis'))) styleScores.Esportivo += 1;
-  if (wardrobe.some((w) => w.includes('bem cortadas'))) styleScores.Elegante += 1;
-  if (wardrobe.some((w) => w.includes('delicadas'))) styleScores.Romântico += 1;
-  if (wardrobe.some((w) => w.includes('criativas'))) styleScores.Criativo += 1;
-
-  const ranked = Object.entries(styleScores).sort((a, b) => b[1] - a[1]);
-  const primaryStyle = ranked[0]?.[0] || 'Elegante';
-  const secondaryStyle = ranked[1]?.[0] || 'Clássico';
-
-  return {
-    primaryStyle,
-    secondaryStyle,
-    occasion,
-    biotype: biotypeData.biotype,
-    biotypeRationale: biotypeData.rationale,
-    measurements: biotypeData.measurements
-  };
-}
-
-// --- Catálogo com Filtro por Perfil de Compra + Links de Afiliado ---
-const AFFILIATE_CATALOG = [
+// --- Vitrine Dinâmica com Filtro de Perfil de Compra e Links de Afiliado ---
+const CATALOG_ITEMS = [
   {
-    id: 'prod-1',
-    brand: 'Renner',
-    name: 'Camisa Alfaiataria Manga Longa com Caimento Fluido',
-    price: 179.9,
-    priceTier: 'Econômico',
-    occasions: ['Trabalho', 'Reunião / Evento', 'Casual'],
-    styles: ['Clássico', 'Elegante', 'Natural'],
-    biotypes: ['Ampulheta', 'Pêra (Triângulo)', 'Retângulo', 'Oval', 'Triângulo Invertido'],
-    audioDescription:
-      'Camisa de alfaiataria em tecido leve de toque macio, modelagem reta com caimento fluido, botões frontais e punhos estruturados. Ideal para compor visuais alinhados sem restringir movimentos.',
-    consultingNote: 'Equilibra formalidade e conforto tátil para ocasiões profissionais e do dia a dia.',
-    affiliateUrl: 'https://www.lojasrenner.com.br/?utm_source=ayanmo_affiliate&utm_medium=app&utm_campaign=mvp_launch'
+    id: 1,
+    desc: 'Blazer Alongado com Decote em V',
+    price: 329.9,
+    priceLabel: 'R$ 329,90',
+    tier: 'Moderado',
+    store: 'Zara',
+    link: 'https://www.zara.com/br/?utm_source=ayanmo&utm_medium=affiliate',
+    image: 'https://images.unsplash.com/photo-1539008835657-9e8e9680c956?auto=format&fit=crop&q=80&w=600',
+    biotypes: ['Oval', 'Retângulo', 'Triângulo', 'Ampulheta']
   },
   {
-    id: 'prod-2',
-    brand: 'C&A',
-    name: 'Calça Pantalona Cintura Alta em Viscose',
+    id: 2,
+    desc: 'Vestido Envelope Midi Fluído',
+    price: 249.9,
+    priceLabel: 'R$ 249,90',
+    tier: 'Moderado',
+    store: 'Amaro',
+    link: 'https://amaro.com/br/pt/?utm_source=ayanmo&utm_medium=affiliate',
+    image: 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&q=80&w=600',
+    biotypes: ['Oval', 'Ampulheta', 'Retângulo']
+  },
+  {
+    id: 3,
+    desc: 'Vestido Acinturado Alfaiataria',
+    price: 299.0,
+    priceLabel: 'R$ 299,00',
+    tier: 'Moderado',
+    store: 'AMARO',
+    link: 'https://amaro.com/br/pt/?utm_source=ayanmo&utm_medium=affiliate',
+    image: 'https://images.unsplash.com/photo-1539008835657-9e8e9680c956?auto=format&fit=crop&q=80&w=600',
+    biotypes: ['Ampulheta', 'Triângulo']
+  },
+  {
+    id: 4,
+    desc: 'Camisa Leve e Conjuntos do Dia a Dia',
     price: 159.9,
-    priceTier: 'Econômico',
-    occasions: ['Trabalho', 'Casual', 'Viagem'],
-    styles: ['Elegante', 'Natural', 'Clássico'],
-    biotypes: ['Ampulheta', 'Oval', 'Triângulo Invertido', 'Retângulo'],
-    audioDescription:
-      'Calça pantalona de cintura alta com cós anatômico e pernas amplas de movimento contínuo. O tecido tem toque fresco e alonga a linha vertical.',
-    consultingNote: 'Alongamento visual e conforto contínuo para rotinas longas ou viagens.',
-    affiliateUrl: 'https://www.cea.com.br/?utm_source=ayanmo_affiliate&utm_medium=app&utm_campaign=mvp_launch'
+    priceLabel: 'R$ 159,90',
+    tier: 'Econômico',
+    store: 'Renner',
+    link: 'https://www.lojasrenner.com.br/?utm_source=ayanmo&utm_medium=affiliate',
+    image: 'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?auto=format&fit=crop&q=80&w=600',
+    biotypes: ['Oval', 'Ampulheta', 'Retângulo', 'Triângulo']
   },
   {
-    id: 'prod-3',
-    brand: 'AMARO',
-    name: 'Vestido Transpassado Midi em Malha Estruturada',
-    price: 269.9,
-    priceTier: 'Moderado',
-    occasions: ['Festa / Jantar', 'Trabalho', 'Encontro'],
-    styles: ['Elegante', 'Romântico', 'Dramático'],
-    biotypes: ['Ampulheta', 'Oval', 'Retângulo', 'Pêra (Triângulo)'],
-    audioDescription:
-      'Vestido midi com decote transpassado em V e faixa ajustável na cintura. Malha encorpada de toque suave que modela com equilíbrio sem apertar.',
-    consultingNote: 'Decote em V e cintura ajustável valorizam proporções e trazem presença elegante.',
-    affiliateUrl: 'https://amaro.com/?utm_source=ayanmo_affiliate&utm_medium=app&utm_campaign=mvp_launch'
-  },
-  {
-    id: 'prod-4',
-    brand: 'Farm Rio',
-    name: 'Blusa Cropped/Cintura Média com Estampa Botânica Leve',
-    price: 298.0,
-    priceTier: 'Moderado',
-    occasions: ['Passeio / Dia', 'Viagem', 'Festa / Jantar'],
-    styles: ['Criativo', 'Romântico', 'Natural'],
-    biotypes: ['Pêra (Triângulo)', 'Ampulheta', 'Retângulo'],
-    audioDescription:
-      'Blusa leve em tecido respirável com estampa orgânica de folhas e flores em contraste harmônico, mangas amplas e acabamento delicado.',
-    consultingNote: 'Traz expressividade criativa e leveza sensorial para dias ensolarados ou encontros.',
-    affiliateUrl: 'https://www.farmrio.com.br/?utm_source=ayanmo_affiliate&utm_medium=app&utm_campaign=mvp_launch'
-  },
-  {
-    id: 'prod-5',
-    brand: 'Zara',
-    name: 'Blazer Alongado Estruturado em Mistura de Viscose',
-    price: 459.0,
-    priceTier: 'Premium',
-    occasions: ['Trabalho', 'Festa / Jantar', 'Reunião / Evento'],
-    styles: ['Elegante', 'Dramático', 'Clássico'],
-    biotypes: ['Oval', 'Pêra (Triângulo)', 'Retângulo', 'Ampulheta'],
-    audioDescription:
-      'Blazer de comprimento alongado com lapela clássica, ombreiras suaves e forro macio. Cria linha vertical marcante e acabamento sofisticado.',
-    consultingNote: 'Peça-chave de impacto e sofisticação que estrutura a silhueta com clareza.',
-    affiliateUrl: 'https://www.zara.com/br/?utm_source=ayanmo_affiliate&utm_medium=app&utm_campaign=mvp_launch'
-  },
-  {
-    id: 'prod-6',
-    brand: 'Track&Field',
-    name: 'Conjunto Esportivo Sem Costura de Alta Respirabilidade',
-    price: 389.0,
-    priceTier: 'Premium',
-    occasions: ['Esportivo / Ativo', 'Viagem', 'Casual'],
-    styles: ['Esportivo', 'Natural'],
-    biotypes: ['Ampulheta', 'Retângulo', 'Triângulo Invertido', 'Pêra (Triângulo)', 'Oval'],
-    audioDescription:
-      'Conjunto esportivo em malha tecnológica sem costuras laterais irritantes, elasticidade uniforme e toque macio que acompanha o movimento.',
-    consultingNote: 'Prioriza sensorialidade tátil, zero atrito e mobilidade total.',
-    affiliateUrl: 'https://www.tf.com.br/?utm_source=ayanmo_affiliate&utm_medium=app&utm_campaign=mvp_launch'
+    id: 5,
+    desc: 'Conjunto Alfaiataria e Peças Selecionadas',
+    price: 429.0,
+    priceLabel: 'R$ 429,00',
+    tier: 'Premium',
+    store: 'Zara',
+    link: 'https://www.zara.com/br/?utm_source=ayanmo&utm_medium=affiliate',
+    image: 'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?auto=format&fit=crop&q=80&w=600',
+    biotypes: ['Oval', 'Ampulheta', 'Retângulo', 'Triângulo']
   }
 ];
 
-function filterCatalogByUser(profile, answers, styleSummary) {
-  const tier = profile.buyingProfile || 'Moderado';
-  const maxPriceMap = {
+function getDynamicRecommendations(biotype, buyingProfile = 'Moderado') {
+  const maxByTier = {
     Econômico: 220,
-    Moderado: 350,
-    Premium: 9999
+    Moderado: 360,
+    Premium: 99999
   };
-  const maxPrice = maxPriceMap[tier] || 350;
+  const maxPrice = maxByTier[buyingProfile] || 360;
 
-  // Filtra inicialmente pelo perfil de compra; se ficar vazio, amplia suavemente
-  let matches = AFFILIATE_CATALOG.filter((item) => item.price <= maxPrice);
-  if (matches.length === 0) matches = [...AFFILIATE_CATALOG];
+  let filtered = CATALOG_ITEMS.filter((item) => item.price <= maxPrice);
+  if (filtered.length === 0) filtered = [...CATALOG_ITEMS];
 
-  // Pontua aderência a biotipo, estilo e ocasião
-  const scored = matches
-    .map((item) => {
-      let score = 0;
-      if (item.biotypes.includes(styleSummary.biotype)) score += 3;
-      if (
-        item.styles.includes(styleSummary.primaryStyle) ||
-        item.styles.includes(styleSummary.secondaryStyle)
-      ) {
-        score += 3;
-      }
-      if (styleSummary.occasion && item.occasions.includes(styleSummary.occasion)) {
-        score += 2;
-      }
-      return { ...item, score };
-    })
-    .sort((a, b) => b.score - a.score);
+  const prioritized = [...filtered].sort((a, b) => {
+    const aMatch = a.biotypes.includes(biotype) ? 1 : 0;
+    const bMatch = b.biotypes.includes(biotype) ? 1 : 0;
+    return bMatch - aMatch;
+  });
 
-  return scored.slice(0, 4);
+  return prioritized.slice(0, 3);
 }
 
-// --- Definição das Perguntas do Quiz ---
-// Regras: Ocasião = máx 1 | Desejo de imagem = máx 2 | Demais = quantas quiser (multi = true, max = null)
-const QUIZ_STEPS = [
-  {
-    step: 4,
-    key: 'ocasiao',
-    title: 'Qual é a ocasião principal para este look?',
+// Perguntas originais do App-antes.js
+// Regras: Ocasião (step 3) = 1 opção | Desejo de imagem (step 5) = até 2 opções | Demais = quantas quiser
+const QUESTIONS_BY_STEP = {
+  3: {
+    key: 'objetivo',
+    title: 'O que você procura hoje?',
     subtitle: 'Escolha 1 opção.',
     multi: false,
     max: 1,
-    options: ['Trabalho', 'Casual', 'Festa / Jantar', 'Esportivo / Ativo', 'Viagem', 'Passeio / Dia']
+    options: [
+      'Look Casual',
+      'Look Esportivo',
+      'Look para Trabalho',
+      'Look de Festa',
+      'Moda Praia',
+      'Look para Viagem',
+      'Moda Íntima'
+    ]
   },
-  {
-    step: 5,
+  4: {
+    key: 'prioridade',
+    title: 'O que mais importa para você em uma roupa?',
+    subtitle: 'Escolha quantas quiser.',
+    multi: true,
+    max: null,
+    options: [
+      'Conforto',
+      'Elegância',
+      'Delicadeza',
+      'Sensualidade',
+      'Impacto',
+      'Discrição',
+      'Criatividade'
+    ]
+  },
+  5: {
     key: 'percepcao',
-    title: 'Qual é o seu desejo de imagem com este look?',
+    title: 'Como você quer ser percebida com este look?',
     subtitle: 'Escolha até 2 opções.',
     multi: true,
     max: 2,
     options: ['Profissional', 'Confiante', 'Acessível', 'Criativa', 'Elegante', 'Marcante']
   },
-  {
-    step: 6,
-    key: 'prioridade',
-    title: 'O que mais importa pra você numa roupa?',
-    subtitle: 'Escolha quantas quiser.',
-    multi: true,
-    max: null,
-    options: ['Conforto', 'Elegância', 'Delicadeza', 'Sensualidade', 'Impacto', 'Discrição', 'Criatividade']
-  },
-  {
-    step: 7,
-    key: 'tecido',
-    title: 'Qual tipo de tecido te atrai mais ao toque?',
-    subtitle: 'Escolha quantas quiser.',
-    multi: true,
-    max: null,
-    options: [
-      'Macio e confortável',
-      'Fino e sofisticado',
-      'Leve e fluido',
-      'Justo e elástico',
-      'Estruturado com forma firme',
-      'Neutro e simples',
-      'Colorido ou diferente'
-    ]
-  },
-  {
-    step: 8,
-    key: 'cores',
-    title: 'Como você mistura as cores nas suas roupas?',
-    subtitle: 'Escolha quantas quiser.',
-    multi: true,
-    max: null,
-    options: [
-      'Neutras (preto, branco, cinza, bege)',
-      'Tudo combinando',
-      'Tons parecidos (monocromático)',
-      'Suaves / pastéis',
-      'Contrastantes',
-      'Cores das tendências',
-      'Uso sempre as mesmas cores'
-    ]
-  },
-  {
-    step: 9,
-    key: 'estampas',
-    title: 'Se fosse escolher uma estampa, qual seria?',
-    subtitle: 'Escolha quantas quiser.',
-    multi: true,
-    max: null,
-    options: [
-      'Neutra / sem estampa',
-      'Estampa pequena e discreta',
-      'Geométrica ou abstrata',
-      'Estampas misturadas',
-      'Listrada ou xadrez',
-      'Floral',
-      'Animal print'
-    ]
-  },
-  {
-    step: 10,
+  6: {
     key: 'guardaRoupa',
     title: 'Do que você mais gosta no seu guarda-roupa?',
     subtitle: 'Escolha quantas quiser.',
@@ -410,29 +263,59 @@ const QUIZ_STEPS = [
       'Roupas confortáveis',
       'Roupas elegantes e bem cortadas',
       'Peças delicadas',
-      'Roupas que valorizam o corpo',
-      'Peças marcantes',
-      'Itens básicos e fáceis de combinar',
-      'Peças criativas e únicas'
+      'Itens básicos',
+      'Peças marcantes'
+    ]
+  },
+  7: {
+    key: 'tecido',
+    title: 'Qual tipo de tecido te atrai mais ao toque?',
+    subtitle: 'Escolha quantas quiser.',
+    multi: true,
+    max: null,
+    options: [
+      'Macio e confortável',
+      'Fino e sofisticado',
+      'Leve e fluído',
+      'Estruturado'
+    ]
+  },
+  8: {
+    key: 'cores',
+    title: 'Como você prefere misturar as cores?',
+    subtitle: 'Escolha quantas quiser.',
+    multi: true,
+    max: null,
+    options: [
+      'Cores intensas',
+      'Tons pastéis',
+      'Cores neutras (preto, branco, cinza)',
+      'Cores contrastantes'
+    ]
+  },
+  9: {
+    key: 'estampas',
+    title: 'Se fosse escolher uma estampa, qual seria?',
+    subtitle: 'Escolha quantas quiser.',
+    multi: true,
+    max: null,
+    options: [
+      'Neutra sem estampa',
+      'Estampa pequena',
+      'Geométrica ou abstrata',
+      'Floral delicado',
+      'Várias estampas misturadas'
     ]
   }
-];
+};
 
 export default function AyanmoApp() {
   const [user, setUser] = useState(null);
-  // 0: Splash | 1: Acessibilidade | 2: Cadastro + Perfil de Compra | 3: Câmera & Medidas (início)
-  // 4..10: Quiz (processa visão computacional em background) | 11: Resultado Biótipo & Estilo | 12: Vitrine Afiliados
+  // 0: Splash | 1: Acessibilidade | 2: Cadastro + Perfil de compra | 3..9: Quiz | 10: Biótipo/Câmera | 11: Resultado | 12: Vitrine
   const [step, setStep] = useState(0);
   const [accessibility, setAccessibility] = useState(true);
-
-  const [profile, setProfile] = useState({
-    nome: '',
-    email: '',
-    telefone: '',
-    aniversario: '',
-    genero: '',
-    buyingProfile: 'Moderado'
-  });
+  const [biotypeDetected, setBiotypeDetected] = useState('Oval');
+  const [bgProcessing, setBgProcessing] = useState(false);
 
   const [measurements, setMeasurements] = useState({
     shouldersCm: 96,
@@ -440,771 +323,569 @@ export default function AyanmoApp() {
     hipsCm: 100
   });
 
-  const [biotypeResult, setBiotypeResult] = useState(null);
-  const [bgProcessing, setBgProcessing] = useState(false);
-
-  const [answers, setAnswers] = useState({
-    ocasiao: '',
-    percepcao: [],
-    prioridade: [],
-    tecido: [],
-    cores: [],
-    estampas: [],
-    guardaRoupa: []
-  });
-
-  const [finalAnalysis, setFinalAnalysis] = useState(null);
-  const [recommendations, setRecommendations] = useState([]);
-
   const videoRef = useRef(null);
-  const streamRef = useRef(null);
   const { speak, stop } = useAudioDescription(accessibility);
 
-  // Autenticação anônima no Firebase
+  const [profile, setProfile] = useState({
+    nome: '',
+    email: '',
+    telefone: '',
+    aniversario: '',
+    genero: '',
+    perfilCompra: 'Moderado'
+  });
+
+  const [answers, setAnswers] = useState({
+    objetivo: '',
+    prioridade: [],
+    percepcao: [],
+    guardaRoupa: [],
+    tecido: [],
+    cores: [],
+    estampas: []
+  });
+
+  const [calculatedResult, setCalculatedResult] = useState(null);
+
   useEffect(() => {
     if (!auth) return;
-    signInAnonymously(auth).catch((err) => console.error('Firebase auth error:', err));
+    signInAnonymously(auth).catch((err) => console.error(err));
     return onAuthStateChanged(auth, setUser);
   }, []);
 
-  // Fontes Google
+  // Processamento de biótipo em background enquanto responde ao quiz
   useEffect(() => {
-    const link = document.createElement('link');
-    link.href =
-      'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Poppins:wght@400;500;600;700&display=swap';
-    link.rel = 'stylesheet';
-    document.head.appendChild(link);
-  }, []);
-
-  // Controle de câmera na etapa 3 (início)
-  useEffect(() => {
-    let active = true;
-    if (step === 3 && navigator.mediaDevices?.getUserMedia) {
-      navigator.mediaDevices
-        .getUserMedia({ video: { facingMode: 'user' }, audio: false })
-        .then((stream) => {
-          if (!active) {
-            stream.getTracks().forEach((t) => t.stop());
-            return;
-          }
-          streamRef.current = stream;
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-          }
-        })
-        .catch(() => {
-          // Segue sem câmera sem bloquear a experiência
+    if (step >= 3 && step <= 9) {
+      setBgProcessing(true);
+      const timer = setTimeout(() => {
+        const biotypes = ['Oval', 'Ampulheta', 'Retângulo', 'Triângulo'];
+        const picked = biotypes[Math.floor(Math.random() * biotypes.length)];
+        const interpreted = interpretBiotype({
+          ...measurements,
+          fallbackBiotype: picked
         });
-    } else if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
+        setBiotypeDetected(interpreted);
+        setBgProcessing(false);
+      }, 900);
+      return () => clearTimeout(timer);
     }
+  }, [step, measurements]);
 
-    return () => {
-      active = false;
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-      }
-    };
-  }, [step]);
-
-  // Leitura em voz alta completa da tela atual (incluindo perguntas, opções e resultados)
+  // Audiodescrição inteligente por passo incluindo perguntas e opções
   const speakCurrentScreen = useCallback(
-    (targetStep) => {
+    (stepIndex) => {
       if (!accessibility) return;
 
-      if (targetStep === 0) {
+      if (stepIndex === 0) {
+        speak('Bem-vinda ao Ayanmo. Sua assistente de estilo acessível. Toque para iniciar.');
+      } else if (stepIndex === 1) {
+        speak('Você deseja ativar a audiodescrição e o leitor de tela acessível? Selecione Sim ou Não.');
+      } else if (stepIndex === 2) {
         speak(
-          'Ayanmo, consultoria de estilo e tecnologia assistiva. Toque na tela para começar.'
+          'Por favor, preencha seus dados de cadastro e escolha seu perfil de compra: Econômico, Moderado ou Premium.'
         );
-        return;
-      }
-
-      if (targetStep === 1) {
+      } else if (stepIndex === 10) {
+        speak('Análise de biotipo por câmera aberta. Posicione-se no centro da moldura.');
+      } else if (stepIndex === 11) {
         speak(
-          'Você precisa de audiodescrição e leitura de tela em voz alta? Escolha Sim ou Não.'
+          `Análise concluída. Biotipo identificado: ${calculatedResult?.biotype || biotypeDetected}. Estilo: ${
+            calculatedResult?.aparencia || ''
+          }. Veja abaixo as orientações de roupas.`
         );
-        return;
-      }
-
-      if (targetStep === 2) {
-        speak(
-          'Cadastro e perfil de compra. Preencha nome, e-mail, telefone, aniversário, gênero e escolha seu perfil de compra: Econômico, Moderado ou Premium.'
-        );
-        return;
-      }
-
-      if (targetStep === 3) {
-        speak(
-          'Leitura inicial de biotipo e medidas simétricas. Ajuste suas medidas de ombros, cintura e quadril ou use a câmera, e toque em Iniciar análise em segundo plano para responder ao quiz.'
-        );
-        return;
-      }
-
-      const quizItem = QUIZ_STEPS.find((q) => q.step === targetStep);
-      if (quizItem) {
-        const currentVal = answers[quizItem.key];
-        const selectedText = quizItem.multi
-          ? currentVal?.length
-            ? ` Selecionados: ${currentVal.join(', ')}.`
-            : ''
-          : currentVal
-          ? ` Selecionado: ${currentVal}.`
-          : '';
-        speak(
-          `${quizItem.title} ${quizItem.subtitle} Opções: ${quizItem.options.join(', ')}.${selectedText}`
-        );
-        return;
-      }
-
-      if (targetStep === 11 && finalAnalysis) {
-        speak(
-          `Resultado da análise: Biótipo ${finalAnalysis.biotype}. ${finalAnalysis.biotypeRationale} Estilo principal: ${finalAnalysis.primaryStyle}, estilo complementar: ${finalAnalysis.secondaryStyle}. Toque em Ver vitrine de recomendações.`
-        );
-        return;
-      }
-
-      if (targetStep === 12) {
-        const summaryItems = recommendations
-          .map(
-            (item, idx) =>
-              `Opção ${idx + 1}: ${item.name}, marca ${item.brand}, preço ${item.price.toFixed(
-                2
-              ).replace('.', ',')} reais. ${item.audioDescription}`
-          )
-          .join(' ');
-        speak(`Vitrine personalizada para seu perfil e perfil de compra. ${summaryItems}`);
+      } else if (stepIndex === 12) {
+        speak('Vitrine de recomendações de peças personalizadas.');
+      } else if (QUESTIONS_BY_STEP[stepIndex]) {
+        const q = QUESTIONS_BY_STEP[stepIndex];
+        speak(`${q.title} ${q.subtitle} Opções disponíveis: ${q.options.join(', ')}.`);
       }
     },
-    [accessibility, answers, finalAnalysis, recommendations, speak]
+    [speak, calculatedResult, biotypeDetected]
   );
 
   useEffect(() => {
     speakCurrentScreen(step);
   }, [step, speakCurrentScreen]);
 
-  // Dispara leitura de biotipo e inicia processamento em background ao sair da etapa 3
-  const startBackgroundBiotypeAnalysis = () => {
-    setBgProcessing(true);
-    const computed = classifyBiotypeFromMeasurements({
-      ...measurements,
-      symmetryScore: 0.94
-    });
-    setBiotypeResult(computed);
+  // Câmera na etapa 10
+  useEffect(() => {
+    let stream = null;
+    if (step === 10) {
+      navigator.mediaDevices
+        ?.getUserMedia({ video: { facingMode: 'user' } })
+        .then((s) => {
+          stream = s;
+          if (videoRef.current) videoRef.current.srcObject = s;
+        })
+        .catch((err) => console.warn('Câmera indisponível:', err));
 
-    // Simula processamento assíncrono em segundo plano enquanto o usuário responde ao quiz
-    setTimeout(() => {
-      setBgProcessing(false);
-    }, 1500);
-  };
+      const timer = setTimeout(() => {
+        const interpreted = interpretBiotype({
+          ...measurements,
+          fallbackBiotype: biotypeDetected
+        });
+        setBiotypeDetected(interpreted);
+        const res = calculateStyleProfile(answers, interpreted);
+        setCalculatedResult(res);
+        saveToFirebase(res);
+        setStep(11);
+      }, 4500);
 
-  const persistAssessment = async (analysisObj, recs) => {
+      return () => {
+        clearTimeout(timer);
+        if (stream) stream.getTracks().forEach((track) => track.stop());
+      };
+    }
+  }, [step, measurements, biotypeDetected, answers]);
+
+  const saveToFirebase = async (finalResult) => {
     if (!db || !user) return;
     try {
       const appId = typeof __app_id !== 'undefined' ? __app_id : 'ayanmo-default';
       await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'assessments'), {
         profile,
         measurements,
-        accessibility,
         answers,
-        analysis: analysisObj,
-        recommendedIds: recs.map((r) => r.id),
+        accessibility,
+        calculatedResult: finalResult,
         createdAt: serverTimestamp()
       });
-    } catch (err) {
-      console.error('Erro ao salvar avaliação no Firebase:', err);
+    } catch (e) {
+      console.error('Erro ao salvar:', e);
     }
   };
 
-  const finalizeQuizAndBuildRecommendations = () => {
-    const bioData =
-      biotypeResult || classifyBiotypeFromMeasurements({ ...measurements, symmetryScore: 0.94 });
-    const styleSummary = calculateStyleProfile(answers, bioData);
-    const filteredRecs = filterCatalogByUser(profile, answers, styleSummary);
-
-    setFinalAnalysis(styleSummary);
-    setRecommendations(filteredRecs);
-    persistAssessment(styleSummary, filteredRecs);
-    setStep(11);
-  };
-
-  const handleNext = () => {
+  const nextStep = () => {
     stop();
-    if (step === 3) {
-      startBackgroundBiotypeAnalysis();
-      setStep(4);
-      return;
-    }
-    if (step === 10) {
-      finalizeQuizAndBuildRecommendations();
-      return;
-    }
-    setStep((prev) => Math.min(12, prev + 1));
+    setStep((s) => {
+      const next = s + 1;
+      if (next === 11) {
+        const res = calculateStyleProfile(answers, biotypeDetected);
+        setCalculatedResult(res);
+        saveToFirebase(res);
+      }
+      return next;
+    });
   };
 
-  const handleBack = () => {
+  const prevStep = () => {
     stop();
-    setStep((prev) => Math.max(0, prev - 1));
+    setStep((s) => Math.max(0, s - 1));
   };
 
-  const handleSelectOption = (key, value, isMulti, max) => {
+  // Seleção:
+  // - Ocasião (isMulti = false, max = 1): seleciona 1 opção e avança
+  // - Desejo de imagem (isMulti = true, max = 2): até 2 opções
+  // - Demais perguntas (isMulti = true, max = null): quantas quiser
+  const handleOptionSelect = (key, value, isMulti = false, max = null) => {
     if (!isMulti) {
       setAnswers((prev) => ({ ...prev, [key]: value }));
-      speak(`Selecionado: ${value}.`);
+      speak(`Selecionado: ${value}`);
+      setTimeout(nextStep, 400);
       return;
     }
 
     setAnswers((prev) => {
       const current = Array.isArray(prev[key]) ? [...prev[key]] : [];
-      const exists = current.includes(value);
       let updated;
-
-      if (exists) {
-        updated = current.filter((item) => item !== value);
-        speak(`Removido: ${value}.`);
-      } else if (max && current.length >= max) {
-        speak(`Limite de ${max} opções atingido para esta pergunta.`);
+      if (current.includes(value)) {
+        updated = current.filter((v) => v !== value);
+        speak(`Removido: ${value}`);
+      } else if (max !== null && current.length >= max) {
+        speak(`Você pode escolher no máximo ${max} opções.`);
         return prev;
       } else {
         updated = [...current, value];
-        speak(`Selecionado: ${value}.`);
+        speak(`Selecionado: ${value}`);
       }
-
       return { ...prev, [key]: updated };
     });
   };
 
-  const renderScreen = () => {
-    // 0: Splash
-    if (step === 0) {
-      return (
-        <div
-          onClick={handleNext}
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => e.key === 'Enter' && handleNext()}
-          className="flex flex-col items-center justify-center h-full p-8 text-center cursor-pointer"
-        >
-          <div className="mb-8 border-4 border-[#4A3026] p-6 rotate-45">
-            <div className="-rotate-45">
-              <h1
-                className="text-4xl md:text-6xl font-bold text-[#4A3026] tracking-widest uppercase"
-                style={{ fontFamily: "'Poppins', sans-serif" }}
+  const renderContent = () => {
+    switch (step) {
+      case 0:
+        return (
+          <div
+            onClick={nextStep}
+            tabIndex={0}
+            role="button"
+            className="flex flex-col items-center justify-center h-full p-8 text-center cursor-pointer focus:outline-none"
+          >
+            <div className="mb-8 border-4 border-[#4A3026] p-6 rotate-45">
+              <div className="-rotate-45">
+                <h1 className="text-4xl md:text-6xl font-bold text-[#4A3026] tracking-widest uppercase">
+                  Ayanmo
+                </h1>
+              </div>
+            </div>
+            <p className="text-[#1A2733] text-lg font-light tracking-wide uppercase">
+              Tecnologia Assistiva e Consultoria de Moda
+            </p>
+            <p className="mt-12 text-[#5C879C] animate-pulse font-medium">
+              Toque ou pressione Enter para começar
+            </p>
+          </div>
+        );
+
+      case 1:
+        return (
+          <div className="flex flex-col items-center justify-center h-full p-6 text-center max-w-md mx-auto">
+            <Volume2 size={56} className="text-[#4A3026] mb-6 animate-bounce" />
+            <h2 className="text-2xl text-[#4A3026] mb-8 font-semibold">
+              Ativar Audiodescrição e Leitor de Tela?
+            </h2>
+            <div className="flex flex-col gap-4 w-full">
+              <button
+                type="button"
+                onClick={() => {
+                  setAccessibility(true);
+                  speak('Audiodescrição ativada.');
+                  nextStep();
+                }}
+                className="py-5 bg-[#4A3026] text-[#F7F7F5] font-bold text-lg rounded shadow-md"
               >
-                Ayanmo
-              </h1>
+                SIM (Ativar Leitor)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAccessibility(false);
+                  stop();
+                  nextStep();
+                }}
+                className="py-4 border-2 border-[#1A2733] text-[#1A2733] font-medium rounded"
+              >
+                NÃO (Padrão)
+              </button>
             </div>
           </div>
-          <p className="text-[#1A2733] text-lg font-light tracking-wide uppercase">
-            Consultoria de Estilo &amp; Tecnologia Assistiva
-          </p>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleNext();
-            }}
-            className="mt-14 px-6 py-3 bg-[#1A2733] text-[#F7F7F5] rounded flex items-center gap-2 font-medium"
-          >
-            <span>Começar</span>
-            <ArrowRight size={18} />
-          </button>
-        </div>
-      );
-    }
+        );
 
-    // 1: Acessibilidade logo no início
-    if (step === 1) {
-      return (
-        <div className="flex flex-col items-center justify-center h-full p-6 text-center max-w-md mx-auto">
-          <Volume2 size={52} className="text-[#4A3026] mb-6" />
-          <h2
-            className="text-2xl text-[#4A3026] mb-8 font-semibold"
-            style={{ fontFamily: "'Poppins', sans-serif" }}
-          >
-            Você precisa de audiodescrição e leitura de tela?
-          </h2>
-          <div className="flex flex-col gap-4 w-full">
-            <button
-              type="button"
-              onClick={() => {
-                setAccessibility(true);
-                speak('Audiodescrição ativada.');
-                setStep(2);
+      case 2:
+        return (
+          <div className="flex flex-col h-full p-6 max-w-md mx-auto justify-center overflow-y-auto">
+            <h2 className="text-2xl text-[#4A3026] mb-6 font-semibold">Seus dados cadastrais</h2>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (profile.nome) nextStep();
               }}
-              className="w-full py-4 bg-[#4A3026] text-[#F7F7F5] font-semibold rounded"
+              className="space-y-4 pb-8"
             >
-              Sim, ativar leitura em voz alta
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setAccessibility(false);
-                stop();
-                setStep(2);
-              }}
-              className="w-full py-4 border-2 border-[#1A2733] text-[#1A2733] font-semibold rounded"
-            >
-              Não
-            </button>
-          </div>
-        </div>
-      );
-    }
-
-    // 2: Cadastro + Perfil de Compra
-    if (step === 2) {
-      return (
-        <div className="flex flex-col h-full p-6 pt-16 max-w-md mx-auto justify-center overflow-y-auto">
-          <h2
-            className="text-2xl text-[#4A3026] mb-6 font-semibold"
-            style={{ fontFamily: "'Poppins', sans-serif" }}
-          >
-            Seus dados e perfil de compra
-          </h2>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (!profile.nome.trim()) return;
-              handleNext();
-            }}
-            className="space-y-4 pb-8"
-          >
-            <div>
-              <label className="block text-xs font-bold uppercase text-[#5C879C] mb-1">
-                Nome *
-              </label>
               <input
                 type="text"
                 required
-                placeholder="Seu nome"
-                className="w-full p-3 bg-white border border-gray-300 rounded text-[#1A2733]"
+                placeholder="Nome Completo"
+                className="p-3 border border-gray-300 rounded w-full bg-white"
                 value={profile.nome}
                 onChange={(e) => setProfile({ ...profile, nome: e.target.value })}
               />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase text-[#5C879C] mb-1">
-                E-mail
-              </label>
               <input
                 type="email"
-                placeholder="voce@exemplo.com"
-                className="w-full p-3 bg-white border border-gray-300 rounded text-[#1A2733]"
+                required
+                placeholder="E-mail"
+                className="p-3 border border-gray-300 rounded w-full bg-white"
                 value={profile.email}
                 onChange={(e) => setProfile({ ...profile, email: e.target.value })}
               />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-bold uppercase text-[#5C879C] mb-1">
-                  Telefone
-                </label>
-                <input
-                  type="tel"
-                  placeholder="(00) 00000-0000"
-                  className="w-full p-3 bg-white border border-gray-300 rounded text-[#1A2733]"
-                  value={profile.telefone}
-                  onChange={(e) => setProfile({ ...profile, telefone: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase text-[#5C879C] mb-1">
-                  Aniversário
-                </label>
-                <input
-                  type="date"
-                  className="w-full p-3 bg-white border border-gray-300 rounded text-[#1A2733]"
-                  value={profile.aniversario}
-                  onChange={(e) => setProfile({ ...profile, aniversario: e.target.value })}
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase text-[#5C879C] mb-1">
-                Gênero
-              </label>
-              <div className="flex gap-2">
-                {['Feminino', 'Masculino', 'Não-binário', 'Outro'].map((g) => (
+              <input
+                type="tel"
+                placeholder="Telefone"
+                className="p-3 border border-gray-300 rounded w-full bg-white"
+                value={profile.telefone}
+                onChange={(e) => setProfile({ ...profile, telefone: e.target.value })}
+              />
+              <input
+                type="date"
+                className="p-3 border border-gray-300 rounded w-full bg-white"
+                value={profile.aniversario}
+                onChange={(e) => setProfile({ ...profile, aniversario: e.target.value })}
+              />
+              <div className="flex space-x-2">
+                {['Feminino', 'Masculino', 'Outro'].map((g) => (
                   <button
                     type="button"
                     key={g}
                     onClick={() => setProfile({ ...profile, genero: g })}
-                    className={`flex-1 py-2 px-2 text-xs border rounded ${
-                      profile.genero === g
-                        ? 'bg-[#4A3026] text-white border-[#4A3026]'
-                        : 'bg-white text-[#1A2733] border-gray-300'
+                    className={`flex-1 py-2 text-sm border rounded ${
+                      profile.genero === g ? 'bg-[#4A3026] text-white' : 'border-gray-300 bg-white'
                     }`}
                   >
                     {g}
                   </button>
                 ))}
               </div>
-            </div>
 
-            <div>
-              <label className="block text-xs font-bold uppercase text-[#5C879C] mb-1">
-                Perfil de Compra (filtro de preço no catálogo)
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { id: 'Econômico', hint: 'Até R$ 220' },
-                  { id: 'Moderado', hint: 'Até R$ 350' },
-                  { id: 'Premium', hint: 'Acima / Completo' }
-                ].map((tier) => (
-                  <button
-                    type="button"
-                    key={tier.id}
-                    onClick={() => {
-                      setProfile({ ...profile, buyingProfile: tier.id });
-                      speak(`Perfil de compra ${tier.id}, ${tier.hint}.`);
-                    }}
-                    className={`p-2 text-left border rounded ${
-                      profile.buyingProfile === tier.id
-                        ? 'bg-[#1A2733] text-white border-[#1A2733]'
-                        : 'bg-white text-[#1A2733] border-gray-300'
-                    }`}
-                  >
-                    <div className="text-xs font-bold">{tier.id}</div>
-                    <div className="text-[11px] opacity-80">{tier.hint}</div>
-                  </button>
-                ))}
+              <div>
+                <p className="text-xs font-bold uppercase text-[#5C879C] mb-1">
+                  Perfil de Compra (Filtro de Preço)
+                </p>
+                <div className="flex space-x-2">
+                  {['Econômico', 'Moderado', 'Premium'].map((tier) => (
+                    <button
+                      type="button"
+                      key={tier}
+                      onClick={() => {
+                        setProfile({ ...profile, perfilCompra: tier });
+                        speak(`Perfil de compra ${tier} selecionado.`);
+                      }}
+                      className={`flex-1 py-2 text-xs border rounded font-medium ${
+                        profile.perfilCompra === tier
+                          ? 'bg-[#1A2733] text-white border-[#1A2733]'
+                          : 'border-gray-300 bg-white text-[#1A2733]'
+                      }`}
+                    >
+                      {tier}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
 
-            <button
-              type="submit"
-              className="w-full mt-4 bg-[#1A2733] text-[#F7F7F5] py-4 uppercase tracking-widest text-sm font-semibold rounded hover:bg-[#4A3026]"
-            >
-              Continuar para Biótipo
-            </button>
-          </form>
-        </div>
-      );
-    }
+              <button
+                type="submit"
+                className="w-full mt-4 bg-[#1A2733] text-[#F7F7F5] py-4 uppercase font-bold rounded"
+              >
+                Continuar
+              </button>
+            </form>
+          </div>
+        );
 
-    // 3: Captura inicial + Medidas Simétricas (roda em background durante o quiz)
-    if (step === 3) {
-      return (
-        <div className="flex flex-col h-full p-6 pt-16 max-w-md mx-auto justify-center overflow-y-auto">
-          <div className="flex items-center gap-2 text-[#4A3026] mb-2">
-            <Ruler size={22} />
-            <h2
-              className="text-xl font-semibold"
-              style={{ fontFamily: "'Poppins', sans-serif" }}
-            >
-              Biótipo e Medidas Simétricas
+      case 10:
+        return (
+          <div className="flex flex-col items-center justify-center h-full p-4 bg-[#1A2733] text-[#F7F7F5] text-center overflow-y-auto">
+            <h2 className="text-xl mb-3 font-light">
+              Análise Morfológica: Posicione-se para leitura de biotipo.
             </h2>
-          </div>
-          <p className="text-xs text-[#5C879C] mb-4">
-            A câmera captura sua silhueta inicial e o processamento roda em segundo plano enquanto você responde ao quiz.
-          </p>
-
-          <div className="relative w-full h-44 bg-[#1A2733] rounded-lg overflow-hidden mb-4 flex items-center justify-center">
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              className="w-full h-full object-cover opacity-80"
-            />
-            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-              <div className="w-28 h-36 border-2 border-dashed border-amber-300 rounded-[50%] flex items-center justify-center">
-                <Camera className="text-amber-300" size={24} />
+            <div className="relative w-64 h-72 border-2 border-[#5C879C] rounded-3xl overflow-hidden mb-4 flex items-center justify-center">
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className="absolute inset-0 w-full h-full object-cover"
+              />
+              <div className="absolute w-48 h-60 border-4 border-dashed border-amber-400 rounded-[50%] flex items-center justify-center animate-pulse">
+                <span className="bg-[#1A2733]/80 text-amber-300 px-3 py-1 text-xs rounded-full font-bold">
+                  {biotypeDetected.toUpperCase()}
+                </span>
               </div>
-              <span className="mt-1 text-[11px] bg-[#1A2733]/80 text-amber-200 px-2 py-0.5 rounded">
-                Alinhe ombros e quadril
-              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 max-w-xs w-full mb-3 text-xs text-[#1A2733]">
+              <label className="bg-[#F7F7F5] p-1.5 rounded">
+                <span className="block font-bold">Ombros (cm)</span>
+                <input
+                  type="number"
+                  value={measurements.shouldersCm}
+                  onChange={(e) =>
+                    setMeasurements({ ...measurements, shouldersCm: Number(e.target.value) })
+                  }
+                  className="w-full text-center bg-transparent font-semibold"
+                />
+              </label>
+              <label className="bg-[#F7F7F5] p-1.5 rounded">
+                <span className="block font-bold">Cintura (cm)</span>
+                <input
+                  type="number"
+                  value={measurements.waistCm}
+                  onChange={(e) =>
+                    setMeasurements({ ...measurements, waistCm: Number(e.target.value) })
+                  }
+                  className="w-full text-center bg-transparent font-semibold"
+                />
+              </label>
+              <label className="bg-[#F7F7F5] p-1.5 rounded">
+                <span className="block font-bold">Quadril (cm)</span>
+                <input
+                  type="number"
+                  value={measurements.hipsCm}
+                  onChange={(e) =>
+                    setMeasurements({ ...measurements, hipsCm: Number(e.target.value) })
+                  }
+                  className="w-full text-center bg-transparent font-semibold"
+                />
+              </label>
+            </div>
+            <p className="text-amber-300 font-medium animate-pulse text-sm flex items-center gap-1">
+              <Ruler size={14} />
+              <span>Processando proporções ({biotypeDetected})...</span>
+            </p>
+          </div>
+        );
+
+      case 11:
+        return (
+          <div className="flex flex-col h-full p-6 max-w-md mx-auto justify-center overflow-y-auto">
+            <div className="flex items-center space-x-3 mb-4 text-[#4A3026]">
+              <Sparkles className="text-[#5C879C]" />
+              <h2 className="text-2xl font-bold">Análise Concluída!</h2>
+            </div>
+            <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200 space-y-4 mb-6">
+              <div>
+                <span className="text-xs text-[#5C879C] font-bold uppercase">Biotipo Identificado</span>
+                <p className="text-2xl font-bold text-[#4A3026]">{calculatedResult?.guide.title}</p>
+              </div>
+              <div>
+                <span className="text-xs text-[#5C879C] font-bold uppercase">Estilo Predominante</span>
+                <p className="text-lg font-medium text-[#1A2733]">{calculatedResult?.aparencia}</p>
+              </div>
+              <div className="bg-amber-50 p-3 rounded border-l-4 border-amber-400">
+                <span className="text-xs font-bold text-amber-800 uppercase block mb-1">
+                  Dica de Caimento:
+                </span>
+                <p className="text-xs text-gray-700">{calculatedResult?.guide.tip}</p>
+              </div>
+              <div>
+                <span className="text-xs text-[#5C879C] font-bold uppercase">
+                  Sugestões de Roupas Ideais
+                </span>
+                <p className="text-sm font-semibold text-[#1A2733]">
+                  {calculatedResult?.guide.clothing}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={nextStep}
+              className="w-full bg-[#4A3026] text-[#F7F7F5] py-4 uppercase font-bold rounded hover:bg-[#1A2733]"
+            >
+              Ver Vitrine de Produtos
+            </button>
+          </div>
+        );
+
+      case 12: {
+        const items = getDynamicRecommendations(
+          calculatedResult?.biotype || biotypeDetected,
+          profile.perfilCompra
+        );
+        return (
+          <div className="flex flex-col h-full bg-[#F7F7F5] overflow-y-auto pb-12 p-6 pt-16">
+            <div className="mb-6 p-4 bg-[#1A2733] text-[#F7F7F5] rounded-lg">
+              <h2 className="text-xl font-bold mb-1">
+                Vitrine para {calculatedResult?.guide.title || biotypeDetected}
+              </h2>
+              <p className="text-xs text-[#5C879C]">
+                Perfil de compra: {profile.perfilCompra} · Estilo: {calculatedResult?.aparencia}
+              </p>
+            </div>
+            <div className="space-y-6 max-w-md mx-auto w-full">
+              {items.map((item) => (
+                <div
+                  key={item.id}
+                  className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden p-4 flex flex-col gap-2"
+                >
+                  <img
+                    src={item.image}
+                    alt={item.desc}
+                    className="w-full h-48 object-cover rounded"
+                  />
+                  <span className="text-xs text-[#5C879C] font-bold uppercase">{item.store}</span>
+                  <h3 className="font-bold text-[#1A2733]">{item.desc}</h3>
+                  <div className="flex justify-between items-center mt-2">
+                    <span className="font-bold text-[#4A3026]">{item.priceLabel}</span>
+                    <button
+                      type="button"
+                      onClick={() => window.open(item.link, '_blank', 'noopener,noreferrer')}
+                      className="px-4 py-2 bg-[#4A3026] text-white rounded text-sm font-bold flex items-center space-x-1"
+                    >
+                      <ShoppingBag size={16} />
+                      <span>Comprar</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
+        );
+      }
 
-          <div className="grid grid-cols-3 gap-2 mb-5">
-            <div>
-              <label className="block text-[11px] font-bold uppercase text-[#5C879C] mb-1">
-                Ombros (cm)
-              </label>
-              <input
-                type="number"
-                min="60"
-                max="150"
-                value={measurements.shouldersCm}
-                onChange={(e) =>
-                  setMeasurements({ ...measurements, shouldersCm: Number(e.target.value) })
-                }
-                className="w-full p-2 bg-white border border-gray-300 rounded text-sm text-[#1A2733]"
-              />
-            </div>
-            <div>
-              <label className="block text-[11px] font-bold uppercase text-[#5C879C] mb-1">
-                Cintura (cm)
-              </label>
-              <input
-                type="number"
-                min="45"
-                max="150"
-                value={measurements.waistCm}
-                onChange={(e) =>
-                  setMeasurements({ ...measurements, waistCm: Number(e.target.value) })
-                }
-                className="w-full p-2 bg-white border border-gray-300 rounded text-sm text-[#1A2733]"
-              />
-            </div>
-            <div>
-              <label className="block text-[11px] font-bold uppercase text-[#5C879C] mb-1">
-                Quadril (cm)
-              </label>
-              <input
-                type="number"
-                min="60"
-                max="160"
-                value={measurements.hipsCm}
-                onChange={(e) =>
-                  setMeasurements({ ...measurements, hipsCm: Number(e.target.value) })
-                }
-                className="w-full p-2 bg-white border border-gray-300 rounded text-sm text-[#1A2733]"
-              />
-            </div>
-          </div>
+      default: {
+        const q = QUESTIONS_BY_STEP[step];
+        if (!q) return null;
 
-          <button
-            type="button"
-            onClick={handleNext}
-            className="w-full py-4 bg-[#4A3026] text-[#F7F7F5] font-semibold uppercase tracking-wider text-sm rounded hover:bg-[#1A2733]"
-          >
-            Processar em Background e Iniciar Quiz
-          </button>
-        </div>
-      );
-    }
+        const selectedList = Array.isArray(answers[q.key]) ? answers[q.key] : [];
+        const hasSelection = q.multi ? selectedList.length > 0 : Boolean(answers[q.key]);
 
-    // 4..10: Quiz
-    const currentQuiz = QUIZ_STEPS.find((q) => q.step === step);
-    if (currentQuiz) {
-      const selected = currentQuiz.multi ? answers[currentQuiz.key] || [] : answers[currentQuiz.key];
-      const hasSelection = currentQuiz.multi ? selected.length > 0 : Boolean(selected);
-
-      return (
-        <div className="flex flex-col h-full p-6 pt-16 max-w-md mx-auto justify-between">
-          <div className="overflow-y-auto pr-1">
-            <div className="flex items-center justify-between text-xs text-[#5C879C] mb-2">
-              <span>
-                Pergunta {step - 3} de {QUIZ_STEPS.length}
-              </span>
+        return (
+          <div className="flex flex-col h-full p-6 pt-16 max-w-md mx-auto w-full justify-center overflow-y-auto">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-xs text-[#5C879C] font-medium">{q.subtitle}</p>
               {bgProcessing && (
-                <span className="flex items-center gap-1 text-[#4A3026]">
+                <span className="text-[11px] text-[#4A3026] flex items-center gap-1">
                   <Loader2 size={12} className="animate-spin" />
-                  Analisando biótipo em background...
+                  <span>Analisando biótipo...</span>
                 </span>
               )}
             </div>
-
-            <h2
-              className="text-xl md:text-2xl text-[#4A3026] font-semibold mb-1"
-              style={{ fontFamily: "'Poppins', sans-serif" }}
-            >
-              {currentQuiz.title}
-            </h2>
-            <p className="text-sm text-[#5C879C] mb-5">{currentQuiz.subtitle}</p>
-
-            <div className="space-y-2.5 pb-4">
-              {currentQuiz.options.map((opt) => {
-                const isSelected = currentQuiz.multi
-                  ? selected.includes(opt)
-                  : selected === opt;
+            <h2 className="text-xl md:text-2xl font-bold text-[#4A3026] mb-6">{q.title}</h2>
+            <div className="space-y-3">
+              {q.options.map((opt) => {
+                const isSelected = q.multi
+                  ? selectedList.includes(opt)
+                  : answers[q.key] === opt;
 
                 return (
                   <button
                     type="button"
                     key={opt}
-                    onClick={() =>
-                      handleSelectOption(
-                        currentQuiz.key,
-                        opt,
-                        currentQuiz.multi,
-                        currentQuiz.max
-                      )
-                    }
-                    className={`w-full p-3.5 text-left rounded border flex items-center justify-between transition-colors ${
-                      isSelected
-                        ? 'bg-[#4A3026] text-[#F7F7F5] border-[#4A3026]'
-                        : 'bg-white text-[#1A2733] border-gray-300 hover:border-[#4A3026]'
+                    onClick={() => handleOptionSelect(q.key, opt, q.multi, q.max)}
+                    className={`w-full text-left p-4 rounded border transition-all flex justify-between items-center ${
+                      isSelected ? 'bg-[#4A3026] text-white' : 'bg-white'
                     }`}
                   >
-                    <span className="text-sm font-medium">{opt}</span>
-                    {isSelected && <Check size={18} />}
+                    <span>{opt}</span>
+                    {isSelected && <Check size={20} />}
                   </button>
                 );
               })}
             </div>
-          </div>
 
-          <button
-            type="button"
-            disabled={!hasSelection}
-            onClick={handleNext}
-            className={`w-full mt-4 py-4 uppercase tracking-widest text-sm font-semibold rounded ${
-              hasSelection
-                ? 'bg-[#1A2733] text-[#F7F7F5] hover:bg-[#4A3026]'
-                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-            }`}
-          >
-            {step === 10 ? 'Concluir e Ver Resultado' : 'Próxima Pergunta'}
-          </button>
-        </div>
-      );
+            {q.multi && (
+              <button
+                type="button"
+                onClick={nextStep}
+                disabled={!hasSelection}
+                className={`w-full mt-6 py-4 uppercase font-bold rounded ${
+                  hasSelection
+                    ? 'bg-[#1A2733] text-[#F7F7F5]'
+                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                }`}
+              >
+                Avançar
+              </button>
+            )}
+          </div>
+        );
+      }
     }
-
-    // 11: Resultado do Biótipo + Estilo
-    if (step === 11 && finalAnalysis) {
-      return (
-        <div className="flex flex-col h-full p-6 pt-16 max-w-md mx-auto justify-center overflow-y-auto">
-          <div className="flex items-center gap-2 text-[#4A3026] mb-4">
-            <Sparkles className="text-[#5C879C]" />
-            <h2
-              className="text-2xl font-semibold"
-              style={{ fontFamily: "'Poppins', sans-serif" }}
-            >
-              Seu Diagnóstico de Estilo
-            </h2>
-          </div>
-
-          <div className="bg-white p-5 rounded-lg border border-gray-200 space-y-4 mb-6">
-            <div>
-              <span className="text-xs uppercase font-bold text-[#5C879C]">
-                Biótipo Identificado
-              </span>
-              <p className="text-2xl font-bold text-[#4A3026]">{finalAnalysis.biotype}</p>
-              <p className="text-xs text-[#1A2733]/80 mt-1">{finalAnalysis.biotypeRationale}</p>
-            </div>
-
-            <div className="border-t pt-3">
-              <span className="text-xs uppercase font-bold text-[#5C879C]">
-                Estilos Predominantes
-              </span>
-              <p className="text-base font-semibold text-[#1A2733] mt-1">
-                {finalAnalysis.primaryStyle} + {finalAnalysis.secondaryStyle}
-              </p>
-              <p className="text-xs text-[#1A2733]/75 mt-1">
-                Ocasião: {finalAnalysis.occasion || 'Geral'} · Perfil de compra:{' '}
-                {profile.buyingProfile}
-              </p>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleNext}
-            className="w-full py-4 bg-[#4A3026] text-[#F7F7F5] uppercase tracking-widest text-sm font-semibold rounded hover:bg-[#1A2733]"
-          >
-            Ver Vitrine de Recomendações
-          </button>
-        </div>
-      );
-    }
-
-    // 12: Vitrine com Links de Afiliado
-    return (
-      <div className="flex flex-col h-full bg-[#F7F7F5] overflow-y-auto pb-12">
-        <div className="p-6 pt-16 bg-[#1A2733] text-[#F7F7F5]">
-          <h2
-            className="text-2xl font-light mb-1"
-            style={{ fontFamily: "'Poppins', sans-serif" }}
-          >
-            {profile.nome ? `${profile.nome.split(' ')[0]}, suas recomendações` : 'Suas recomendações'}
-          </h2>
-          <p className="text-xs text-[#5C879C]">
-            Biótipo {finalAnalysis?.biotype} · Estilo {finalAnalysis?.primaryStyle} · Perfil{' '}
-            {profile.buyingProfile}
-          </p>
-        </div>
-
-        <div className="p-6 space-y-5 max-w-xl mx-auto w-full">
-          {recommendations.map((item) => (
-            <div
-              key={item.id}
-              className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm space-y-2"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase tracking-wider text-[#5C879C]">
-                  {item.brand}
-                </span>
-                <span className="text-sm font-bold text-[#4A3026]">
-                  R$ {item.price.toFixed(2).replace('.', ',')}
-                </span>
-              </div>
-
-              <h3 className="text-base font-semibold text-[#1A2733]">{item.name}</h3>
-              <p className="text-xs text-[#1A2733]/80">{item.consultingNote}</p>
-              <p className="text-xs text-[#1A2733]/70 bg-[#F7F7F5] p-2.5 rounded">
-                <strong>Audiodescrição:</strong> {item.audioDescription}
-              </p>
-
-              <div className="pt-2 flex items-center justify-between gap-2">
-                <button
-                  type="button"
-                  onClick={() =>
-                    speak(
-                      `${item.name}. ${item.brand}. Preço ${item.price
-                        .toFixed(2)
-                        .replace('.', ',')} reais. ${item.audioDescription}`
-                    )
-                  }
-                  className="px-3 py-2 text-xs font-medium border border-[#5C879C] text-[#5C879C] rounded flex items-center gap-1"
-                >
-                  <Volume2 size={14} />
-                  <span>Ouvir peça</span>
-                </button>
-
-                <a
-                  href={item.affiliateUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-4 py-2 bg-[#4A3026] text-[#F7F7F5] text-xs font-semibold rounded flex items-center gap-1.5 hover:bg-[#1A2733]"
-                >
-                  <ShoppingBag size={14} />
-                  <span>Ir para loja (Parceiro)</span>
-                </a>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
   };
 
   return (
-    <div
-      className="h-screen w-full bg-[#F7F7F5] relative overflow-hidden"
-      style={{ fontFamily: "'Inter', sans-serif" }}
-    >
+    <div className="h-screen w-full bg-[#F7F7F5] relative overflow-hidden">
       {step > 0 && (
-        <div className="absolute top-4 left-4 right-4 z-50 flex items-center justify-between">
+        <div className="absolute top-4 left-4 right-4 z-50 flex justify-between items-center">
           <button
             type="button"
-            onClick={handleBack}
+            onClick={prevStep}
+            className="p-2 bg-white rounded-full shadow text-[#1A2733]"
             aria-label="Voltar"
-            className="p-2 bg-white rounded-full shadow text-[#1A2733] hover:text-[#4A3026]"
           >
-            <ChevronLeft size={22} />
+            <ChevronLeft size={24} />
           </button>
-
           {accessibility && (
             <button
               type="button"
               onClick={() => speakCurrentScreen(step)}
-              className="px-3 py-1.5 bg-[#5C879C] text-white text-xs font-semibold rounded-full shadow flex items-center gap-1.5"
+              className="px-3 py-1 bg-[#5C879C] text-white text-xs font-bold rounded-full shadow flex items-center space-x-1"
             >
               <RotateCcw size={14} />
-              <span>Reouvir tela</span>
+              <span>Reouvir Tela</span>
             </button>
           )}
         </div>
       )}
-      {renderScreen()}
+      {renderContent()}
     </div>
   );
 }
